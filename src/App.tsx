@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Bot, FolderCode } from "lucide-react";
+import { Bot, FolderCode, Layout } from "lucide-react";
 import { api, type Project, type Session, type ClaudeMdFile } from "@/lib/api";
 import { initializeWebMode } from "@/lib/apiAdapter";
 import { OutputCacheProvider } from "@/lib/outputCache";
@@ -18,6 +18,7 @@ import { CCAgents } from "@/components/CCAgents";
 import { UsageDashboard } from "@/components/UsageDashboard";
 import { MCPManager } from "@/components/MCPManager";
 import { NFOCredits } from "@/components/NFOCredits";
+import { ThreeLevelLayout } from "@/components/ThreeLevelLayout";
 import { ClaudeBinaryDialog } from "@/components/ClaudeBinaryDialog";
 import { Toast, ToastContainer } from "@/components/ui/toast";
 import { ProjectSettings } from '@/components/ProjectSettings';
@@ -27,11 +28,11 @@ import { useTabState } from "@/hooks/useTabState";
 import { useAppLifecycle, useTrackEvent } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
 
-type View = 
-  | "welcome" 
-  | "projects" 
-  | "editor" 
-  | "claude-file-editor" 
+type View =
+  | "welcome"
+  | "projects"
+  | "editor"
+  | "claude-file-editor"
   | "settings"
   | "cc-agents"
   | "create-agent"
@@ -41,13 +42,14 @@ type View =
   | "mcp"
   | "usage-dashboard"
   | "project-settings"
-  | "tabs"; // New view for tab-based interface
+  | "tabs" // New view for tab-based interface
+  | "three-level"; // Three-level menu layout
 
 /**
  * AppContent component - Contains the main app logic, wrapped by providers
  */
 function AppContent() {
-  const [view, setView] = useState<View>("tabs");
+  const [view, setView] = useState<View>("three-level"); /*tabs*/
   const { createClaudeMdTab, createSettingsTab, createUsageTab, createMCPTab, createAgentsTab } = useTabState();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -276,13 +278,30 @@ function AppContent() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.15, delay: 0.1 }}
                 >
-                  <Card 
+                  <Card
                     className="h-64 cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg border border-border/50 shimmer-hover trailing-border"
                     onClick={() => handleViewChange("projects")}
                   >
                     <div className="h-full flex flex-col items-center justify-center p-8">
                       <FolderCode className="h-16 w-16 mb-4 text-primary" />
                       <h2 className="text-xl font-semibold">Projects</h2>
+                    </div>
+                  </Card>
+                </motion.div>
+
+                {/* Three Level Layout Card */}
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15, delay: 0.15 }}
+                >
+                  <Card
+                    className="h-64 cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg border border-border/50 shimmer-hover trailing-border"
+                    onClick={() => handleViewChange("three-level")}
+                  >
+                    <div className="h-full flex flex-col items-center justify-center p-8">
+                      <Layout className="h-16 w-16 mb-4 text-primary" />
+                      <h2 className="text-xl font-semibold">三级布局</h2>
                     </div>
                   </Card>
                 </motion.div>
@@ -369,6 +388,9 @@ function AppContent() {
           );
         }
         break;
+
+      case "three-level":
+        return <ThreeLevelLayout />;
       
       default:
         return null;

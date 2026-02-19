@@ -36,6 +36,18 @@ export default defineConfig(async () => ({
       // 3. tell vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+    // 4. Proxy API requests to backend server for web mode debugging
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        ws: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:8080',
+        ws: true,
+      },
+    },
   },
 
   // Build configuration for code splitting
