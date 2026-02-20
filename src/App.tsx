@@ -390,7 +390,16 @@ function AppContent() {
         break;
 
       case "three-level":
-        return <ThreeLevelLayout />;
+        return (
+          <ThreeLevelLayout
+            onAddClick={async (project) => {
+              console.log("新建项目:", project);
+              // TODO: 调用后端 API 创建项目
+              // const newProject = await api.createProject(project);
+              // setProjects([...projects, newProject]);
+            }}
+          />
+        );
       
       default:
         return null;

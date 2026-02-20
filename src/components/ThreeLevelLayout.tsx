@@ -4,6 +4,7 @@ import { ChevronRight, Search, FolderOpen, FileText, Settings, Users, BarChart, 
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
+import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 
 // 一级菜单项类型
 interface Level1Item {
@@ -166,7 +167,7 @@ interface ThreeLevelLayoutProps {
   className?: string;
   onMenuChange?: (level1: Level1Item | null, level2: Level2Item | null, level3: Level3Item | null) => void;
   customLevel3Content?: (level3: Level3Item) => React.ReactNode;
-  onAddClick?: () => void;
+  onAddClick?: (project: { name: string; description: string; workDir: string }) => void;
   addButtonText?: string;
 }
 
@@ -184,6 +185,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     menuData[0]?.children[0]?.children[0] || null
   );
   const [level2SearchQuery, setLevel2SearchQuery] = useState('');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+
+  // 处理新建项目
+  const handleCreateProject = (project: { name: string; description: string; workDir: string }) => {
+    onAddClick?.(project);
+    setShowCreateDialog(false);
+  };
 
   // 处理一级菜单点击
   const handleLevel1Click = (item: Level1Item) => {
@@ -237,9 +245,15 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   );
 
   return (
-    <div className={cn("flex h-full", className)}>
+    <>
+      <CreateProjectDialog
+        isOpen={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        onConfirm={handleCreateProject}
+      />
+      <div className={cn("flex h-full", className)}>
       {/* 第一级：主菜单 */}
-      <div className="w-56 flex-shrink-0 border-r bg-muted/10">
+      <div className="w-40 flex-shrink-0 border-r bg-muted/10">
         <ScrollArea className="h-full">
           <div className="p-2">
             {menuData.map((item) => (
@@ -263,7 +277,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
       </div>
 
       {/* 第二级：子菜单区域 */}
-      <div className="w-64 flex-shrink-0 border-r bg-muted/5">
+      <div className="w-64 flex-shrink-0 border-r bg-white">
         <div className="p-3 border-b">
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
@@ -277,13 +291,12 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             </div>
             {onAddClick && (
               <motion.button
-                onClick={onAddClick}
+                onClick={() => setShowCreateDialog(true)}
                 whileTap={{ scale: 0.95 }}
-                className="h-9 px-3 flex items-center gap-1.5 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium"
+                className="h-9 w-9 flex items-center justify-center bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
                 title={addButtonText}
               >
                 <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">{addButtonText}</span>
               </motion.button>
             )}
           </div>
@@ -339,7 +352,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
       </div>
 
       {/* 第三级：主内容区域 */}
-      <div className="flex-1 overflow-hidden bg-background">
+      <div className="flex-1 overflow-hidden bg-white">
         <ScrollArea className="h-full">
           <div className="h-full p-6">
             {selectedLevel3 ? (
@@ -360,6 +373,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
         </ScrollArea>
       </div>
     </div>
+    </>
   );
 };
 
