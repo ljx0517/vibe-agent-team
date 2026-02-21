@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Folder } from "lucide-react";
+import { Folder, AlertCircle, CheckCircle } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,10 +14,17 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
+interface DirectoryStatus {
+  is_empty: boolean;
+  has_workspace_marker: boolean;
+  is_valid_workspace: boolean;
+  error: string | null;
+}
+
 interface CreateProjectDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (project: { name: string; description: string; workDir: string }) => void;
+  onConfirm: (project: { name: string; projectCode?: string; description: string; workDir: string }) => void;
 }
 
 export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
@@ -25,9 +33,12 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
   onConfirm,
 }) => {
   const [name, setName] = useState("");
+  const [projectCode, setProjectCode] = useState("");
   const [description, setDescription] = useState("");
   const [workDir, setWorkDir] = useState("");
   const [nameError, setNameError] = useState(false);
+  const [workDirError, setWorkDirError] = useState<string | null>(null);
+  const [workDirStatus, setWorkDirStatus] = useState<"empty" | "workspace" | "invalid" | null>(null);
 
   const handleOpenFolder = async () => {
     try {
@@ -35,10 +46,37 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "选择工作目录",
+        title: "选择工作空间",
       });
       if (selected) {
-        setWorkDir(selected as string);
+        const path = selected as string;
+        setWorkDir(path);
+        setWorkDirError(null);
+        setWorkDirStatus(null);
+
+        // Check directory status
+        const status = await invoke<DirectoryStatus>("check_directory_status", { path });
+
+        if (status.error) {
+          setWorkDirError(status.error);
+          setWorkDirStatus("invalid");
+          return;
+        }
+
+        if (status.has_workspace_marker) {
+          // Existing workspace
+          setWorkDirStatus("workspace");
+          setWorkDirError(null);
+        } else if (status.is_empty) {
+          // Empty directory - create workspace marker
+          await invoke("create_workspace_marker", { path });
+          setWorkDirStatus("empty");
+          setWorkDirError(null);
+        } else {
+          // Not empty and no workspace marker
+          setWorkDirError("请选择空文件夹或已初始化的工作空间");
+          setWorkDirStatus("invalid");
+        }
       }
     } catch (error) {
       console.error("Failed to open folder dialog:", error);
@@ -50,23 +88,38 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
       setNameError(true);
       return;
     }
+    if (!workDir.trim()) {
+      setWorkDirError("请选择工作空间");
+      return;
+    }
+    if (workDirStatus === "invalid") {
+      setWorkDirError("请选择空文件夹或已初始化的工作空间");
+      return;
+    }
     onConfirm({
       name: name.trim(),
+      projectCode: projectCode.trim() || undefined,
       description: description.trim(),
       workDir: workDir.trim(),
     });
     // 重置表单
     setName("");
+    setProjectCode("");
     setDescription("");
     setWorkDir("");
     setNameError(false);
+    setWorkDirError(null);
+    setWorkDirStatus(null);
   };
 
   const handleClose = () => {
     setName("");
+    setProjectCode("");
     setDescription("");
     setWorkDir("");
     setNameError(false);
+    setWorkDirError(null);
+    setWorkDirStatus(null);
     onClose();
   };
 
@@ -103,6 +156,17 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
             )}
           </div>
 
+          {/* 项目代码 */}
+          <div className="grid gap-2">
+            <Label htmlFor="project-code">项目代码</Label>
+            <Input
+              id="project-code"
+              placeholder="请输入项目代码（选填）"
+              value={projectCode}
+              onChange={(e) => setProjectCode(e.target.value)}
+            />
+          </div>
+
           {/* 项目描述 */}
           <div className="grid gap-2">
             <Label htmlFor="project-description">项目描述</Label>
@@ -115,16 +179,35 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
             />
           </div>
 
-          {/* 工作目录 */}
+          {/* 工作空间 */}
           <div className="grid gap-2">
-            <Label>工作目录</Label>
+            <Label>工作空间</Label>
             <div className="flex gap-2">
-              <Input
-                placeholder="点击右侧按钮选择文件夹"
-                value={workDir}
-                readOnly
-                className="flex-1 bg-muted"
-              />
+              <div className="relative flex-1">
+                <Input
+                  placeholder="点击右侧按钮选择文件夹"
+                  value={workDir}
+                  readOnly
+                  className={`flex-1 bg-muted pr-10 ${
+                    workDirStatus === "workspace"
+                      ? "border-green-500"
+                      : workDirStatus === "invalid"
+                      ? "border-red-500"
+                      : ""
+                  }`}
+                />
+                {workDir && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {workDirStatus === "workspace" ? (
+                      <CheckCircle className="w-4 h-4 text-green-500" />
+                    ) : workDirStatus === "empty" ? (
+                      <CheckCircle className="w-4 h-4 text-blue-500" />
+                    ) : workDirStatus === "invalid" ? (
+                      <AlertCircle className="w-4 h-4 text-red-500" />
+                    ) : null}
+                  </div>
+                )}
+              </div>
               <Button
                 type="button"
                 variant="outline"
@@ -135,6 +218,15 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
                 选择
               </Button>
             </div>
+            {workDirError && (
+              <p className="text-xs text-red-500">{workDirError}</p>
+            )}
+            {workDirStatus === "workspace" && (
+              <p className="text-xs text-green-600">已识别为工作空间</p>
+            )}
+            {workDirStatus === "empty" && (
+              <p className="text-xs text-blue-600">已创建新的工作空间</p>
+            )}
           </div>
         </div>
 

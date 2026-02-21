@@ -152,7 +152,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
   const handleGitHubLinkClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
-      await open("https://github.com/getAsterisk/opcode/tree/main/cc_agents");
+      await open("https://github.com/ljx0517/vibe-agent-team/tree/main/cc_agents");
     } catch (error) {
       console.error('Failed to open GitHub link:', error);
     }
@@ -177,7 +177,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
                 onClick={handleGitHubLinkClick}
                 className="text-primary hover:underline inline-flex items-center gap-1"
               >
-                github.com/getAsterisk/opcode/cc_agents
+                github.com/ljx0517/vibe-agent-team/cc_agents
                 <Globe className="h-3 w-3" />
               </button>
             </p>

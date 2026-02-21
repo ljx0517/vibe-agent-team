@@ -1,12 +1,12 @@
 {
-  "name": "opcode",
+  "name": "VibeAgentTeam",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.0.1",
   "license": "AGPL-3.0",
   "type": "module",
   "scripts": {
     "dev:front": "vite",
-    "dev:serv": "cd src-tauri && cargo run --bin opcode-web -- --port 8081",
+    "dev:serv": "cd src-tauri && cargo run --bin VibeAgentTeamWeb -- --port 8081",
     "build": "tsc && vite build",
     "prebuild": "",
     "build:executables": "bun run scripts/fetch-and-build.js --version=1.0.41",

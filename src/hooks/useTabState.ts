@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useTabContext } from '@/contexts/TabContext';
 import { Tab } from '@/contexts/TabContext';
+import { SETTINGS_TABS } from '@/components/CustomTitlebar.tsx';
 
 interface UseTabStateReturn {
   // State
@@ -19,7 +20,7 @@ interface UseTabStateReturn {
   createAgentsTab: () => string | null;
   createUsageTab: () => string | null;
   createMCPTab: () => string | null;
-  createSettingsTab: () => string | null;
+  createSettingsTab: (settingsTabId?: typeof SETTINGS_TABS[number]['id']) => string | null;
   createClaudeMdTab: () => string | null;
   createClaudeFileTab: (fileId: string, fileName: string) => string;
   createCreateAgentTab: () => string;
@@ -154,10 +155,14 @@ export const useTabState = (): UseTabStateReturn => {
     });
   }, [addTab, tabs, setActiveTab]);
 
-  const createSettingsTab = useCallback((): string | null => {
+  const createSettingsTab = useCallback((settingsTabId?: string): string | null => {
     // Check if settings tab already exists (singleton)
     const existingTab = tabs.find(tab => tab.type === 'settings');
     if (existingTab) {
+      // If a specific settings tab is requested and different from current, update it
+      if (settingsTabId && existingTab.settingsTabId !== settingsTabId) {
+        updateTab(existingTab.id, { settingsTabId });
+      }
       setActiveTab(existingTab.id);
       return existingTab.id;
     }
@@ -167,9 +172,10 @@ export const useTabState = (): UseTabStateReturn => {
       title: 'Settings',
       status: 'idle',
       hasUnsavedChanges: false,
-      icon: 'settings'
+      icon: 'settings',
+      settingsTabId
     });
-  }, [addTab, tabs, setActiveTab]);
+  }, [addTab, tabs, setActiveTab, updateTab]);
 
   const createClaudeMdTab = useCallback((): string | null => {
     // Check if claude-md tab already exists (singleton)

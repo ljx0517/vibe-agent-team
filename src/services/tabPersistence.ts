@@ -5,9 +5,9 @@
 
 import type { Tab } from '@/contexts/TabContext';
 
-const STORAGE_KEY = 'opcode_tabs_v2';
-const ACTIVE_TAB_KEY = 'opcode_active_tab_v2';
-const PERSISTENCE_ENABLED_KEY = 'opcode_tab_persistence_enabled';
+const STORAGE_KEY = 'vibe_agent_team_tabs_v2';
+const ACTIVE_TAB_KEY = 'vibe_agent_team_active_tab_v2';
+const PERSISTENCE_ENABLED_KEY = 'vibe_agent_team_tab_persistence_enabled';
 
 interface SerializedTab {
   id: string;
@@ -184,7 +184,7 @@ export class TabPersistenceService {
    */
   static migrateFromOldFormat(): void {
     try {
-      const oldKey = 'opcode_tabs';
+      const oldKey = 'vibe_agent_team_tabs';
       const oldData = localStorage.getItem(oldKey);
       
       if (oldData && !localStorage.getItem(STORAGE_KEY)) {

@@ -3,18 +3,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::process::Child;
+use uuid::Uuid;
 
 /// Type of process being tracked
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProcessType {
-    AgentRun { agent_id: i64, agent_name: String },
-    ClaudeSession { session_id: String },
+    AgentRun {
+        agent_id: String,
+        agent_name: String,
+    },
+    ClaudeSession {
+        session_id: String,
+    },
 }
 
 /// Information about a running agent process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessInfo {
-    pub run_id: i64,
+    pub run_id: String,
     pub process_type: ProcessType,
     pub pid: u32,
     pub started_at: DateTime<Utc>,
@@ -33,31 +39,21 @@ pub struct ProcessHandle {
 
 /// Registry for tracking active agent processes
 pub struct ProcessRegistry {
-    processes: Arc<Mutex<HashMap<i64, ProcessHandle>>>, // run_id -> ProcessHandle
-    next_id: Arc<Mutex<i64>>, // Auto-incrementing ID for non-agent processes
+    processes: Arc<Mutex<HashMap<String, ProcessHandle>>>, // run_id -> ProcessHandle
 }
 
 impl ProcessRegistry {
     pub fn new() -> Self {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(Mutex::new(1000000)), // Start at high number to avoid conflicts
         }
-    }
-
-    /// Generate a unique ID for non-agent processes
-    pub fn generate_id(&self) -> Result<i64, String> {
-        let mut next_id = self.next_id.lock().map_err(|e| e.to_string())?;
-        let id = *next_id;
-        *next_id += 1;
-        Ok(id)
     }
 
     /// Register a new running agent process
     pub fn register_process(
         &self,
-        run_id: i64,
-        agent_id: i64,
+        run_id: String,
+        agent_id: String,
         agent_name: String,
         pid: u32,
         project_path: String,
@@ -66,7 +62,7 @@ impl ProcessRegistry {
         child: Child,
     ) -> Result<(), String> {
         let process_info = ProcessInfo {
-            run_id,
+            run_id: run_id.clone(),
             process_type: ProcessType::AgentRun {
                 agent_id,
                 agent_name,
@@ -85,8 +81,8 @@ impl ProcessRegistry {
     #[allow(dead_code)]
     pub fn register_sidecar_process(
         &self,
-        run_id: i64,
-        agent_id: i64,
+        run_id: String,
+        agent_id: String,
         agent_name: String,
         pid: u32,
         project_path: String,
@@ -94,7 +90,7 @@ impl ProcessRegistry {
         model: String,
     ) -> Result<(), String> {
         let process_info = ProcessInfo {
-            run_id,
+            run_id: run_id.clone(),
             process_type: ProcessType::AgentRun {
                 agent_id,
                 agent_name,
@@ -127,11 +123,11 @@ impl ProcessRegistry {
         project_path: String,
         task: String,
         model: String,
-    ) -> Result<i64, String> {
-        let run_id = self.generate_id()?;
+    ) -> Result<String, String> {
+        let run_id = Uuid::new_v4().to_string();
 
         let process_info = ProcessInfo {
-            run_id,
+            run_id: run_id.clone(),
             process_type: ProcessType::ClaudeSession { session_id },
             pid,
             started_at: Utc::now(),
@@ -149,14 +145,14 @@ impl ProcessRegistry {
             live_output: Arc::new(Mutex::new(String::new())),
         };
 
-        processes.insert(run_id, process_handle);
+        processes.insert(run_id.clone(), process_handle);
         Ok(run_id)
     }
 
     /// Internal method to register any process
     fn register_process_internal(
         &self,
-        run_id: i64,
+        run_id: String,
         process_info: ProcessInfo,
         child: Child,
     ) -> Result<(), String> {
@@ -201,7 +197,7 @@ impl ProcessRegistry {
 
     /// Unregister a process (called when it completes)
     #[allow(dead_code)]
-    pub fn unregister_process(&self, run_id: i64) -> Result<(), String> {
+    pub fn unregister_process(&self, run_id: String) -> Result<(), String> {
         let mut processes = self.processes.lock().map_err(|e| e.to_string())?;
         processes.remove(&run_id);
         Ok(())
@@ -231,13 +227,13 @@ impl ProcessRegistry {
 
     /// Get a specific running process
     #[allow(dead_code)]
-    pub fn get_process(&self, run_id: i64) -> Result<Option<ProcessInfo>, String> {
+    pub fn get_process(&self, run_id: String) -> Result<Option<ProcessInfo>, String> {
         let processes = self.processes.lock().map_err(|e| e.to_string())?;
         Ok(processes.get(&run_id).map(|handle| handle.info.clone()))
     }
 
     /// Kill a running process with proper cleanup
-    pub async fn kill_process(&self, run_id: i64) -> Result<bool, String> {
+    pub async fn kill_process(&self, run_id: String) -> Result<bool, String> {
         use log::{error, info, warn};
 
         // First check if the process exists and get its PID
@@ -282,11 +278,12 @@ impl ProcessRegistry {
 
         // If direct kill didn't work, try system command as fallback
         if !kill_sent {
+            let run_id_for_kill = run_id.clone();
             info!(
                 "Attempting fallback kill for process {} (PID: {})",
                 run_id, pid
             );
-            match self.kill_process_by_pid(run_id, pid) {
+            match self.kill_process_by_pid(run_id_for_kill, pid) {
                 Ok(true) => return Ok(true),
                 Ok(false) => warn!(
                     "Fallback kill also failed for process {} (PID: {})",
@@ -350,7 +347,7 @@ impl ProcessRegistry {
                     *child_guard = None;
                 }
                 // One more attempt with system kill
-                let _ = self.kill_process_by_pid(run_id, pid);
+                let _ = self.kill_process_by_pid(run_id.clone(), pid);
             }
         }
 
@@ -361,7 +358,7 @@ impl ProcessRegistry {
     }
 
     /// Kill a process by PID using system commands (fallback method)
-    pub fn kill_process_by_pid(&self, run_id: i64, pid: u32) -> Result<bool, String> {
+    pub fn kill_process_by_pid(&self, run_id: String, pid: u32) -> Result<bool, String> {
         use log::{error, info, warn};
 
         info!("Attempting to kill process {} by PID {}", run_id, pid);
@@ -436,7 +433,7 @@ impl ProcessRegistry {
 
     /// Check if a process is still running by trying to get its status
     #[allow(dead_code)]
-    pub async fn is_process_running(&self, run_id: i64) -> Result<bool, String> {
+    pub async fn is_process_running(&self, run_id: String) -> Result<bool, String> {
         let processes = self.processes.lock().map_err(|e| e.to_string())?;
 
         if let Some(handle) = processes.get(&run_id) {
@@ -470,7 +467,7 @@ impl ProcessRegistry {
     }
 
     /// Append to live output for a process
-    pub fn append_live_output(&self, run_id: i64, output: &str) -> Result<(), String> {
+    pub fn append_live_output(&self, run_id: String, output: &str) -> Result<(), String> {
         let processes = self.processes.lock().map_err(|e| e.to_string())?;
         if let Some(handle) = processes.get(&run_id) {
             let mut live_output = handle.live_output.lock().map_err(|e| e.to_string())?;
@@ -481,7 +478,7 @@ impl ProcessRegistry {
     }
 
     /// Get live output for a process
-    pub fn get_live_output(&self, run_id: i64) -> Result<String, String> {
+    pub fn get_live_output(&self, run_id: String) -> Result<String, String> {
         let processes = self.processes.lock().map_err(|e| e.to_string())?;
         if let Some(handle) = processes.get(&run_id) {
             let live_output = handle.live_output.lock().map_err(|e| e.to_string())?;
@@ -493,18 +490,18 @@ impl ProcessRegistry {
 
     /// Cleanup finished processes
     #[allow(dead_code)]
-    pub async fn cleanup_finished_processes(&self) -> Result<Vec<i64>, String> {
+    pub async fn cleanup_finished_processes(&self) -> Result<Vec<String>, String> {
         let mut finished_runs = Vec::new();
         let processes_lock = self.processes.clone();
 
         // First, identify finished processes
         {
             let processes = processes_lock.lock().map_err(|e| e.to_string())?;
-            let run_ids: Vec<i64> = processes.keys().cloned().collect();
+            let run_ids: Vec<String> = processes.keys().cloned().collect();
             drop(processes);
 
             for run_id in run_ids {
-                if !self.is_process_running(run_id).await? {
+                if !self.is_process_running(run_id.clone()).await? {
                     finished_runs.push(run_id);
                 }
             }

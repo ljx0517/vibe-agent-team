@@ -114,12 +114,14 @@ export interface ClaudeInstallation {
 // Agent API types
 export interface Agent {
   id?: number;
+  project_id?: string; // 归属的团队/项目ID
   name: string;
   icon: string;
   system_prompt: string;
   default_task?: string;
   model: string;
   hooks?: string; // JSON string of HooksConfiguration
+  settings?: string; // JSON string of agent settings
   created_at: string;
   updated_at: string;
 }
@@ -703,21 +705,25 @@ export const api = {
    * @returns Promise resolving to the created agent
    */
   async createAgent(
-    name: string, 
-    icon: string, 
-    system_prompt: string, 
-    default_task?: string, 
+    name: string,
+    icon: string,
+    system_prompt: string,
+    default_task?: string,
     model?: string,
-    hooks?: string
+    hooks?: string,
+    settings?: string,
+    project_id?: string
   ): Promise<Agent> {
     try {
-      return await apiCall<Agent>('create_agent', { 
-        name, 
-        icon, 
+      return await apiCall<Agent>('create_agent', {
+        name,
+        icon,
         systemPrompt: system_prompt,
         defaultTask: default_task,
         model,
-        hooks
+        hooks,
+        settings,
+        projectId: project_id
       });
     } catch (error) {
       console.error("Failed to create agent:", error);

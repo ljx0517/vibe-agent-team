@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Bot, FolderCode, Layout } from "lucide-react";
-import { api, type Project, type Session, type ClaudeMdFile } from "@/lib/api";
+import { invoke } from "@tauri-apps/api/core";
+import { api, type Project, type Session, type ClaudeMdFile, type Agent } from "@/lib/api";
 import { initializeWebMode } from "@/lib/apiAdapter";
 import { OutputCacheProvider } from "@/lib/outputCache";
 import { TabProvider } from "@/contexts/TabContext";
@@ -10,7 +11,7 @@ import { Card } from "@/components/ui/card";
 import { ProjectList } from "@/components/ProjectList";
 import { FilePicker } from "@/components/FilePicker";
 import { SessionList } from "@/components/SessionList";
-import { CustomTitlebar } from "@/components/CustomTitlebar";
+import { CustomTitlebar, SettingsTabId } from "@/components/CustomTitlebar";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { ClaudeFileEditor } from "@/components/ClaudeFileEditor";
 import { Settings } from "@/components/Settings";
@@ -48,10 +49,20 @@ type View =
 /**
  * AppContent component - Contains the main app logic, wrapped by providers
  */
+// 数据库项目类型
+interface DbProject {
+  project_id: string;
+  project_name: string;
+  project_code?: string;
+  workspace_id: string;
+  workspace_path: string;
+}
+
 function AppContent() {
   const [view, setView] = useState<View>("three-level"); /*tabs*/
   const { createClaudeMdTab, createSettingsTab, createUsageTab, createMCPTab, createAgentsTab } = useTabState();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [dbProjects, setDbProjects] = useState<DbProject[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [editingClaudeFile, setEditingClaudeFile] = useState<ClaudeMdFile | null>(null);
@@ -97,6 +108,21 @@ function AppContent() {
     } else if (view === "welcome") {
       // Reset loading state for welcome view
       setLoading(false);
+    }
+  }, [view]);
+
+  // Load database projects when view is three-level
+  useEffect(() => {
+    if (view === "three-level") {
+      const loadDbProjects = async () => {
+        try {
+          const result = await invoke<DbProject[]>("storage_list_projects");
+          setDbProjects(result);
+        } catch (error) {
+          console.error("加载项目列表失败:", error);
+        }
+      };
+      loadDbProjects();
     }
   }, [view]);
 
@@ -249,7 +275,7 @@ function AppContent() {
               >
                 <h1 className="text-4xl font-bold tracking-tight">
                   <span className="rotating-symbol"></span>
-                  Welcome to opcode
+                  Welcome to Vibe Agent Team
                 </h1>
               </motion.div>
 
@@ -392,11 +418,52 @@ function AppContent() {
       case "three-level":
         return (
           <ThreeLevelLayout
+            projects={dbProjects}
+            members={[]}
             onAddClick={async (project) => {
               console.log("新建项目:", project);
-              // TODO: 调用后端 API 创建项目
-              // const newProject = await api.createProject(project);
-              // setProjects([...projects, newProject]);
+              try {
+                const result = await invoke<{ project_id: string; workspace_id: string }>(
+                  "storage_create_project",
+                  {
+                    input: {
+                      name: project.name,
+                      project_code: project.projectCode,
+                      description: project.description,
+                      work_dir: project.workDir,
+                    },
+                  }
+                );
+                console.log("项目创建成功:", result);
+                // 刷新项目列表
+                const updatedProjects = await invoke<DbProject[]>("storage_list_projects");
+                setDbProjects(updatedProjects);
+
+                // 生成团队成员
+                try {
+                  const teamMembers = await invoke<Agent[]>("generate_team_members", {
+                    projectName: project.name,
+                  });
+                  console.log("团队成员生成成功:", teamMembers);
+                  setToast({
+                    message: `项目创建成功！已生成团队成员: ${teamMembers.map(m => m.name).join(", ")}`,
+                    type: "success"
+                  });
+                } catch (teamError: any) {
+                  console.error("生成团队成员失败:", teamError);
+                  // 不阻塞项目创建流程，团队成员创建失败不影响项目本身，但提示用户
+                  setToast({
+                    message: `项目创建成功，但团队成员生成失败: ${teamError?.toString() || "未知错误"}`,
+                    type: "error"
+                  });
+                }
+              } catch (error: any) {
+                console.error("创建项目失败:", error);
+                setToast({
+                  message: `创建项目失败: ${error?.toString() || "未知错误"}`,
+                  type: "error"
+                });
+              }
             }}
           />
         );
@@ -414,7 +481,7 @@ function AppContent() {
         onUsageClick={() => createUsageTab()}
         onClaudeClick={() => createClaudeMdTab()}
         onMCPClick={() => createMCPTab()}
-        onSettingsClick={() => createSettingsTab()}
+        onSettingsClick={(tabId?: SettingsTabId) => createSettingsTab(tabId)}
         onInfoClick={() => setShowNFO(true)}
       />
       

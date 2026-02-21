@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import opcodeLogo from "../../src-tauri/icons/icon.png";
+import vibeAgentTeamLogo from "../../src-tauri/icons/icon.png";
 import type { CSSProperties } from "react";
 
 /**
@@ -50,8 +50,8 @@ export function StartupIntro({ visible }: { visible: boolean }) {
             className="relative flex flex-col items-center justify-center gap-1"
           >
 
-            {/* opcode logo slides left; brand text reveals to the right */}
-            <div className="relative flex items-center justify-center">
+            {/* vibe-agent-team logo slides left; brand text reveals to the right */}
+<div className="relative flex items-center justify-center">
               {/* Logo wrapper that gently slides left */}
               <motion.div
                 className="relative z-10"
@@ -66,8 +66,8 @@ export function StartupIntro({ visible }: { visible: boolean }) {
                   transition={{ duration: 0.9, ease: "easeOut" }}
                 />
                 <motion.img
-                  src={opcodeLogo}
-                  alt="opcode"
+                  src={vibeAgentTeamLogo}
+                  alt="Vibe Agent Team"
                   className="h-20 w-20 rounded-lg shadow-sm"
                   transition={{ repeat: Infinity, repeatType: "loop", ease: "linear", duration: 0.5 }}
                 />
@@ -97,8 +97,8 @@ export default StartupIntro;
 function BrandText() {
   return (
     <div className="text-5xl font-extrabold tracking-tight brand-text">
-      <span className="brand-text-solid">opcode</span>
-      <span aria-hidden="true" className="brand-text-shimmer">opcode</span>
+      <span className="brand-text-solid">Vibe Agent Team</span>
+      <span aria-hidden="true" className="brand-text-shimmer">Vibe Agent Team</span>
     </div>
   );
 }

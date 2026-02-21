@@ -939,6 +939,8 @@ pub async fn execute_claude_code(
         model.clone(),
         "--output-format".to_string(),
         "stream-json".to_string(),
+        "--input-format".to_string(),
+        "stream-json".to_string(),
         "--verbose".to_string(),
         "--dangerously-skip-permissions".to_string(),
     ];
@@ -970,6 +972,8 @@ pub async fn continue_claude_code(
         "--model".to_string(),
         model.clone(),
         "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--input-format".to_string(),
         "stream-json".to_string(),
         "--verbose".to_string(),
         "--dangerously-skip-permissions".to_string(),
@@ -1005,6 +1009,8 @@ pub async fn resume_claude_code(
         "--model".to_string(),
         model.clone(),
         "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--input-format".to_string(),
         "stream-json".to_string(),
         "--verbose".to_string(),
         "--dangerously-skip-permissions".to_string(),
@@ -1200,7 +1206,7 @@ async fn spawn_claude_process(
 
     // We'll extract the session ID from Claude's init message
     let session_id_holder: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-    let run_id_holder: Arc<Mutex<Option<i64>>> = Arc::new(Mutex::new(None));
+    let run_id_holder: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     // Store the child process in the global state (for backward compatibility)
     let claude_state = app.state::<ClaudeProcessState>();
@@ -1260,8 +1266,8 @@ async fn spawn_claude_process(
             }
 
             // Store live output in registry if we have a run_id
-            if let Some(run_id) = *run_id_holder_clone.lock().unwrap() {
-                let _ = registry_clone.append_live_output(run_id, &line);
+            if let Some(ref run_id) = *run_id_holder_clone.lock().unwrap() {
+                let _ = registry_clone.append_live_output(run_id.clone(), &line);
             }
 
             // Emit the line to the frontend with session isolation if we have session ID
@@ -1328,8 +1334,8 @@ async fn spawn_claude_process(
         }
 
         // Unregister from ProcessRegistry if we have a run_id
-        if let Some(run_id) = *run_id_holder_clone2.lock().unwrap() {
-            let _ = registry_clone2.unregister_process(run_id);
+        if let Some(ref run_id) = *run_id_holder_clone2.lock().unwrap() {
+            let _ = registry_clone2.unregister_process(run_id.clone());
         }
 
         // Clear the process from state

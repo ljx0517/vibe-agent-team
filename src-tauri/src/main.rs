@@ -9,8 +9,8 @@ mod process;
 use checkpoint::state::CheckpointState;
 use commands::agents::{
     cleanup_finished_processes, create_agent, delete_agent, execute_agent, export_agent,
-    export_agent_to_file, fetch_github_agent_content, fetch_github_agents, get_agent,
-    get_agent_run, get_agent_run_with_real_time_metrics, get_claude_binary_path,
+    export_agent_to_file, fetch_github_agent_content, fetch_github_agents, generate_team_members,
+    get_agent, get_agent_run, get_agent_run_with_real_time_metrics, get_claude_binary_path,
     get_live_session_output, get_session_output, get_session_status, import_agent,
     import_agent_from_file, import_agent_from_github, init_database, kill_agent_session,
     list_agent_runs, list_agent_runs_with_metrics, list_agents, list_claude_installations,
@@ -38,8 +38,9 @@ use commands::mcp::{
 
 use commands::proxy::{apply_proxy_settings, get_proxy_settings, save_proxy_settings};
 use commands::storage::{
-    storage_delete_row, storage_execute_sql, storage_insert_row, storage_list_tables,
-    storage_read_table, storage_reset_database, storage_update_row,
+    check_directory_status, storage_create_project, storage_list_projects,
+    create_workspace_marker, storage_delete_row, storage_execute_sql, storage_insert_row,
+    storage_list_tables, storage_read_table, storage_reset_database, storage_update_row,
 };
 use commands::usage::{
     get_session_stats, get_usage_by_date_range, get_usage_details, get_usage_stats,
@@ -229,6 +230,7 @@ fn main() {
             // Agent Management
             list_agents,
             create_agent,
+            generate_team_members,
             update_agent,
             delete_agent,
             get_agent,
@@ -281,6 +283,10 @@ fn main() {
             storage_insert_row,
             storage_execute_sql,
             storage_reset_database,
+            check_directory_status,
+            create_workspace_marker,
+            storage_create_project,
+            storage_list_projects,
             // Slash Commands
             commands::slash_commands::slash_commands_list,
             commands::slash_commands::slash_command_get,

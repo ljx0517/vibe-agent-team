@@ -105,15 +105,19 @@ pub fn apply_proxy_settings(settings: &ProxySettings) {
     if !settings.enabled {
         // Clear proxy environment variables if disabled
         log::info!("Clearing proxy environment variables");
-        std::env::remove_var("HTTP_PROXY");
-        std::env::remove_var("HTTPS_PROXY");
-        std::env::remove_var("NO_PROXY");
-        std::env::remove_var("ALL_PROXY");
-        // Also clear lowercase versions
-        std::env::remove_var("http_proxy");
-        std::env::remove_var("https_proxy");
-        std::env::remove_var("no_proxy");
-        std::env::remove_var("all_proxy");
+        // SAFETY: These environment variables are application-specific proxies
+        // and don't affect global process state in a harmful way.
+        unsafe {
+            std::env::remove_var("HTTP_PROXY");
+            std::env::remove_var("HTTPS_PROXY");
+            std::env::remove_var("NO_PROXY");
+            std::env::remove_var("ALL_PROXY");
+            // Also clear lowercase versions
+            std::env::remove_var("http_proxy");
+            std::env::remove_var("https_proxy");
+            std::env::remove_var("no_proxy");
+            std::env::remove_var("all_proxy");
+        }
         return;
     }
 
@@ -127,28 +131,31 @@ pub fn apply_proxy_settings(settings: &ProxySettings) {
     let no_proxy_value = no_proxy_list.join(",");
 
     // Set proxy environment variables (uppercase is standard)
-    if let Some(http_proxy) = &settings.http_proxy {
-        if !http_proxy.is_empty() {
-            log::info!("Setting HTTP_PROXY={}", http_proxy);
-            std::env::set_var("HTTP_PROXY", http_proxy);
+    // SAFETY: Setting application-specific proxy environment variables.
+    unsafe {
+        if let Some(http_proxy) = &settings.http_proxy {
+            if !http_proxy.is_empty() {
+                log::info!("Setting HTTP_PROXY={}", http_proxy);
+                std::env::set_var("HTTP_PROXY", http_proxy);
+            }
         }
-    }
 
-    if let Some(https_proxy) = &settings.https_proxy {
-        if !https_proxy.is_empty() {
-            log::info!("Setting HTTPS_PROXY={}", https_proxy);
-            std::env::set_var("HTTPS_PROXY", https_proxy);
+        if let Some(https_proxy) = &settings.https_proxy {
+            if !https_proxy.is_empty() {
+                log::info!("Setting HTTPS_PROXY={}", https_proxy);
+                std::env::set_var("HTTPS_PROXY", https_proxy);
+            }
         }
-    }
 
-    // Always set NO_PROXY to include localhost
-    log::info!("Setting NO_PROXY={}", no_proxy_value);
-    std::env::set_var("NO_PROXY", &no_proxy_value);
+        // Always set NO_PROXY to include localhost
+        log::info!("Setting NO_PROXY={}", no_proxy_value);
+        std::env::set_var("NO_PROXY", &no_proxy_value);
 
-    if let Some(all_proxy) = &settings.all_proxy {
-        if !all_proxy.is_empty() {
-            log::info!("Setting ALL_PROXY={}", all_proxy);
-            std::env::set_var("ALL_PROXY", all_proxy);
+        if let Some(all_proxy) = &settings.all_proxy {
+            if !all_proxy.is_empty() {
+                log::info!("Setting ALL_PROXY={}", all_proxy);
+                std::env::set_var("ALL_PROXY", all_proxy);
+            }
         }
     }
 

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 
-const host = process.env.TAURI_DEV_HOST;
+const host = process.env.TAURI_DEV_HOST; // || 'localhost';
 
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
@@ -38,23 +38,26 @@ export default defineConfig(async () => ({
     },
     // 4. Proxy API requests to backend server for web mode debugging
     proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-        ws: true,
-      },
+      // '/api': {
+      //   target: 'http://localhost:8080',
+      //   changeOrigin: true,
+      //   ws: true,
+      // },
       '/ws': {
-        target: 'ws://localhost:8080',
+        target: 'ws://localhost:1421',
         ws: true,
       },
     },
   },
-
+  envPrefix: ['VITE_', 'TAURI_ENV_*'],
   // Build configuration for code splitting
   build: {
     // Increase chunk size warning limit to 2000 KB
     chunkSizeWarningLimit: 2000,
-    
+    // don't minify for debug builds
+    minify:!process.env.TAURI_ENV_DEBUG ? true : false,
+    // produce sourcemaps for debug builds
+    sourcemap: !!process.env.TAURI_ENV_DEBUG,
     rollupOptions: {
       output: {
         // Manual chunks for better code splitting

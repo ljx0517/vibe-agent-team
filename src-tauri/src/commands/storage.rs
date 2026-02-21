@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 use std::collections::HashMap;
 use tauri::{AppHandle, Manager, State};
+use uuid::Uuid;
 
 /// Represents metadata about a database table
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -528,3 +529,206 @@ fn json_to_sql_value(value: &JsonValue) -> Result<Box<dyn rusqlite::ToSql>, Stri
 
 /// Initialize the agents database (re-exported from agents module)
 use super::agents::init_database;
+
+/// Directory status for workspace validation
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DirectoryStatus {
+    pub is_empty: bool,
+    pub has_workspace_marker: bool,
+    pub is_valid_workspace: bool,
+    pub error: Option<String>,
+}
+
+/// Check directory status for workspace validation
+#[tauri::command]
+pub async fn check_directory_status(path: String) -> Result<DirectoryStatus, String> {
+    use std::fs;
+
+    let path_obj = std::path::Path::new(&path);
+
+    if !path_obj.exists() {
+        return Ok(DirectoryStatus {
+            is_empty: true,
+            has_workspace_marker: false,
+            is_valid_workspace: false,
+            error: Some("目录不存在".to_string()),
+        });
+    }
+
+    if !path_obj.is_dir() {
+        return Ok(DirectoryStatus {
+            is_empty: true,
+            has_workspace_marker: false,
+            is_valid_workspace: false,
+            error: Some("所选路径不是目录".to_string()),
+        });
+    }
+
+    // Check for .vibe-team-workspace marker file
+    let workspace_marker = path_obj.join(".vibe-team-workspace");
+    let has_workspace_marker = workspace_marker.exists();
+
+    // Read directory contents
+    let entries = fs::read_dir(path_obj).map_err(|e| e.to_string())?;
+
+    // Filter out hidden files/directories (starting with .)
+    let visible_entries: Vec<_> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            !name_str.starts_with('.')
+        })
+        .collect();
+
+    let is_empty = visible_entries.is_empty();
+
+    Ok(DirectoryStatus {
+        is_empty,
+        has_workspace_marker,
+        is_valid_workspace: is_empty || has_workspace_marker,
+        error: None,
+    })
+}
+
+/// Create workspace marker file in directory
+#[tauri::command]
+pub async fn create_workspace_marker(path: String) -> Result<(), String> {
+    use std::fs;
+
+    let path_obj = std::path::Path::new(&path);
+
+    if !path_obj.exists() || !path_obj.is_dir() {
+        return Err("无效的目录路径".to_string());
+    }
+
+    let marker_path = path_obj.join(".vibe-team-workspace");
+    fs::write(&marker_path, "").map_err(|e| format!("创建工作空间标记失败: {}", e))?;
+
+    Ok(())
+}
+
+/// Project creation input
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateProjectInput {
+    pub name: String,
+    pub project_code: Option<String>,
+    pub description: String,
+    pub work_dir: String,
+}
+
+/// Project creation result
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateProjectResult {
+    pub project_id: String,
+    pub workspace_id: String,
+}
+
+/// Create a new project with associated workspace
+#[tauri::command]
+pub async fn storage_create_project(
+    db: State<'_, AgentDb>,
+    app: AppHandle,
+    input: CreateProjectInput,
+) -> Result<CreateProjectResult, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let project_id = Uuid::new_v4().to_string();
+    let workspace_id = Uuid::new_v4().to_string();
+
+    // Insert into projects table
+    conn.execute(
+        "INSERT INTO projects (id, name, project_code, working_dir, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+        params![project_id, input.name, input.project_code, input.work_dir],
+    )
+    .map_err(|e| format!("创建项目失败: {}", e))?;
+
+    // Insert into workspaces table with the project path and name
+    conn.execute(
+        "INSERT INTO workspaces (id, name, path, created_at, updated_at)
+         VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
+        params![workspace_id, input.name, input.work_dir],
+    )
+    .map_err(|e| format!("创建工作空间失败: {}", e))?;
+    log::info!(
+        "create workspace in: {}",
+        input.work_dir
+    );
+
+    // Build the team formation prompt
+    let prompt = format!(
+        "我(产品经理)正在为一个项目组建一个开发团队(agent team)，项目名叫\"{}\"，你叫\"王大锤\"作为Team Lead还需要一个评审人叫\"李小锤\"，\
+        李小锤在项目团队内充当devil's advocate的角色，李小锤是一个资深的IT专家，对一个项目从立项到最后的增长运维的各个环节都是专家，\
+        目前团队(agent team)内只有两个人, 后续环节人员待定，现在只需要把团队(agent team)组建好就行了。无需确认。",
+        input.name
+    );
+
+    // Call Claude to form the team in background (don't wait for completion)
+    let app_clone = app.clone();
+    let project_path = input.work_dir.clone();
+    tokio::spawn(async move {
+        // Import the claude module commands
+        use crate::commands::claude::execute_claude_code;
+
+        // Use default model "sonnet" if not specified
+        let model = "sonnet".to_string();
+
+        match execute_claude_code(app_clone, project_path, prompt, model).await {
+            Ok(_) => {
+                log::info!("Claude team formation completed successfully");
+            }
+            Err(e) => {
+                log::error!("Failed to communicate with Claude: {}", e);
+            }
+        }
+    });
+
+    Ok(CreateProjectResult {
+        project_id,
+        workspace_id,
+    })
+}
+
+/// Project with workspace info
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProjectWithWorkspace {
+    pub project_id: String,
+    pub project_name: String,
+    pub project_code: Option<String>,
+    pub workspace_id: String,
+    pub workspace_path: String,
+}
+
+/// List all projects with their workspaces
+#[tauri::command]
+pub async fn storage_list_projects(
+    db: State<'_, AgentDb>,
+) -> Result<Vec<ProjectWithWorkspace>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT p.id, p.name, p.project_code, w.id, w.path
+             FROM projects p
+             LEFT JOIN workspaces w ON w.name = p.name
+             ORDER BY p.created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let projects = stmt
+        .query_map([], |row| {
+            Ok(ProjectWithWorkspace {
+                project_id: row.get(0)?,
+                project_name: row.get(1)?,
+                project_code: row.get(2)?,
+                workspace_id: row.get(3)?,
+                workspace_path: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(projects)
+}

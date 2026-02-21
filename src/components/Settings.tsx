@@ -40,6 +40,10 @@ interface SettingsProps {
    * Optional className for styling
    */
   className?: string;
+  /**
+   * Initial tab to show when component mounts
+   */
+  initialTabId?: string;
 }
 
 interface PermissionRule {
@@ -59,12 +63,13 @@ interface EnvironmentVariable {
  */
 export const Settings: React.FC<SettingsProps> = ({
   className,
+  initialTabId,
 }) => {
   const [settings, setSettings] = useState<ClaudeSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(initialTabId || "general");
   const [currentBinaryPath, setCurrentBinaryPath] = useState<string | null>(null);
   const [selectedInstallation, setSelectedInstallation] = useState<ClaudeInstallation | null>(null);
   const [binaryPathChanged, setBinaryPathChanged] = useState(false);
@@ -675,7 +680,7 @@ export const Settings: React.FC<SettingsProps> = ({
                       <div className="space-y-1">
                         <Label htmlFor="analytics-enabled">Enable Analytics</Label>
                         <p className="text-caption text-muted-foreground">
-                          Help improve opcode by sharing anonymous usage data
+                          Help improve Vibe Agent Team by sharing anonymous usage data
                         </p>
                       </div>
                       <Switch

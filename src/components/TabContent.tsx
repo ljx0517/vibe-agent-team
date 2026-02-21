@@ -310,7 +310,7 @@ const TabPanel: React.FC<TabPanelProps> = ({ tab, isActive }) => {
       case 'settings':
         return (
           <div className="h-full">
-            <Settings onBack={() => {}} />
+            <Settings onBack={() => {}} initialTabId={tab.settingsTabId} />
           </div>
         );
       

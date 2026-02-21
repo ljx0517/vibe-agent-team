@@ -65,11 +65,11 @@ rebuild: clean build run
 
 # Run web server mode for phone access
 web: build-frontend
-    cd src-tauri && cargo run --bin opcode-web
+    cd src-tauri && cargo run --bin VibeAgentTeamWeb
 
 # Run web server on custom port
 web-port PORT: build-frontend
-    cd src-tauri && cargo run --bin opcode-web -- --port {{PORT}}
+    cd src-tauri && cargo run --bin VibeAgentTeamWeb -- --port {{PORT}}
 
 # Get local IP for phone access
 ip:
@@ -80,7 +80,7 @@ ip:
 
 # Show build information
 info:
-    @echo "🚀 Opcode - Claude Code GUI Application"
+    @echo "🚀 vibe-agent-team - Claude Code GUI Application"
     @echo "Built for NixOS without Docker"
     @echo ""
     @echo "📦 Frontend: React + TypeScript + Vite"

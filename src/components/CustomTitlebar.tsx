@@ -1,11 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Minus, Square, X, Bot, BarChart3, FileText, Network, Info, MoreVertical } from 'lucide-react';
+import { Settings, Minus, Square, X, Bot, BarChart3, FileText, Network, Info, MoreVertical, ChevronDown, Shield, Terminal, HardDrive, Link, Sliders, Code, Database } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 
+// Settings tabs configuration
+export const SETTINGS_TABS = [
+  { id: 'general', label: 'General', icon: Settings },
+  { id: 'permissions', label: 'Permissions', icon: Shield },
+  { id: 'environment', label: 'Environment', icon: Terminal },
+  { id: 'advanced', label: 'Advanced', icon: Sliders },
+  { id: 'hooks', label: 'Hooks', icon: Link },
+  { id: 'commands', label: 'Commands', icon: Code },
+  { id: 'storage', label: 'Storage', icon: Database },
+  { id: 'proxy', label: 'Proxy', icon: HardDrive },
+] as const;
+
+export type SettingsTabId = typeof SETTINGS_TABS[number]['id'];
+
 interface CustomTitlebarProps {
-  onSettingsClick?: () => void;
+  onSettingsClick?: (tabId?: SettingsTabId) => void;
   onAgentsClick?: () => void;
   onUsageClick?: () => void;
   onClaudeClick?: () => void;
@@ -23,12 +37,17 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isSettingsDropdownOpen, setIsSettingsDropdownOpen] = useState(false);
+  const settingsDropdownRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsDropdownOpen(false);
+      }
+      if (settingsDropdownRef.current && !settingsDropdownRef.current.contains(event.target as Node)) {
+        setIsSettingsDropdownOpen(false);
       }
     };
 
@@ -172,16 +191,45 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         {/* Secondary actions group */}
         <div className="flex items-center gap-1">
           {onSettingsClick && (
-            <TooltipSimple content="Settings" side="bottom">
-              <motion.button
-                onClick={onSettingsClick}
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.15 }}
-                className="p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors tauri-no-drag"
-              >
-                <Settings size={16} />
-              </motion.button>
-            </TooltipSimple>
+            <div className="relative" ref={settingsDropdownRef}>
+              <TooltipSimple content="Settings" side="bottom">
+                <motion.button
+                  onClick={() => setIsSettingsDropdownOpen(!isSettingsDropdownOpen)}
+                  whileTap={{ scale: 0.97 }}
+                  transition={{ duration: 0.15 }}
+                  className="p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors tauri-no-drag flex items-center gap-1"
+                >
+                  <Settings size={16} />
+                  <ChevronDown size={12} className={`transition-transform ${isSettingsDropdownOpen ? 'rotate-180' : ''}`} />
+                </motion.button>
+              </TooltipSimple>
+
+              {isSettingsDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-popover border border-border rounded-lg shadow-lg z-[250] max-h-[400px] overflow-y-auto">
+                  <div className="py-1">
+                    <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Settings
+                    </div>
+                    {SETTINGS_TABS.map((tab) => {
+                      const Icon = tab.icon;
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => {
+                            onSettingsClick(tab.id);
+                            setIsSettingsDropdownOpen(false);
+                          }}
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3"
+                        >
+                          <Icon size={14} />
+                          <span>{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Dropdown menu for additional options */}

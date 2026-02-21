@@ -106,9 +106,60 @@ impl<T> ApiResponse<T> {
     }
 }
 
-/// Serve the React frontend
-async fn serve_frontend() -> Html<&'static str> {
-    Html(include_str!("../../dist/index.html"))
+/// Check if running in dev mode (Vite dev server is available)
+/// Check if running in dev mode by detecting Vite dev server
+fn is_dev_mode() -> bool {
+    // Check environment variable first
+    if std::env::var("TAURI_DEV").is_ok() || std::env::var("RUST_DEV").is_ok() {
+        return true;
+    }
+
+    // Also auto-detect if Vite dev server is running on port 1420
+    std::net::TcpStream::connect("localhost:1420").is_ok()
+}
+
+/// Serve the React frontend - either from Vite dev server or embedded HTML
+async fn serve_frontend() -> Html<String> {
+    if is_dev_mode() {
+        // In dev mode, fetch from Vite dev server
+        match reqwest::get("http://localhost:1420").await {
+            Ok(response) => {
+                if let Ok(html) = response.text().await {
+                    println!("[serve_frontend] Fetched from Vite dev server");
+                    return Html(html);
+                }
+            }
+            Err(e) => {
+                println!("[serve_frontend] Failed to fetch from Vite: {}", e);
+            }
+        }
+        // If Vite fetch fails, return a message to start Vite
+        return Html(r#"<!DOCTYPE html>
+<html>
+<head><title>Dev Mode</title></head>
+<body>
+<h1>Start Vite dev server</h1>
+<p>Run <code>bun run dev:front</code> to start the frontend dev server.</p>
+</body>
+</html>"#.to_string());
+    }
+
+    // Production mode: use embedded HTML (requires dist/index.html to exist)
+    #[cfg(not(debug_assertions))]
+    Html(include_str!("../../dist/index.html").to_string());
+
+    // In debug builds, try to load from file if embedded not available
+    #[cfg(debug_assertions)]
+    {
+        let dist_path = std::path::Path::new("../../dist/index.html");
+        if dist_path.exists() {
+            std::fs::read_to_string(dist_path)
+                .map(Html)
+                .unwrap_or_else(|_| Html("<h1>Error loading index.html</h1>".to_string()))
+        } else {
+            Html("<h1>Build frontend first</h1><p>Run bun run build</p>".to_string())
+        }
+    }
 }
 
 /// API endpoint to get projects (equivalent to Tauri command)
@@ -490,6 +541,8 @@ async fn execute_claude_command(
         &model,
         "--output-format",
         "stream-json",
+        "--input-format",
+        "stream-json",
         "--verbose",
         "--dangerously-skip-permissions",
     ];
@@ -691,6 +744,8 @@ async fn resume_claude_command(
         &model,
         "--output-format",
         "stream-json",
+        "--input-format",
+        "stream-json",
         "--verbose",
         "--dangerously-skip-permissions",
     ];
@@ -822,7 +877,7 @@ pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Erro
         )
         // WebSocket endpoint for real-time Claude execution
         .route("/ws/claude", get(claude_websocket))
-        // Serve static assets
+        // Serve static assets (in dev mode, these should be empty as Vite serves them)
         .nest_service("/assets", ServeDir::new("../dist/assets"))
         .nest_service("/vite.svg", ServeDir::new("../dist/vite.svg"))
         .layer(cors)
@@ -830,7 +885,11 @@ pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Erro
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("🌐 Web server running on http://0.0.0.0:{}", port);
-    println!("📱 Access from phone: http://YOUR_PC_IP:{}", port);
+    if is_dev_mode() {
+        println!("🔧 Dev mode: frontend served from Vite at http://localhost:1420");
+    } else {
+        println!("📱 Access from phone: http://YOUR_PC_IP:{}", port);
+    }
 
     let listener = TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

@@ -117,6 +117,7 @@ function AppContent() {
         {/* Custom Titlebar */}
         <CustomTitlebar
           onSettingsClick={() => {
+            console.log('Settings clicked 1');
             // Open settings tab or modal
             window.dispatchEvent(new CustomEvent('create-settings-tab'));
           }}

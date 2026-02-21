@@ -1,24 +1,24 @@
 [package]
-name = "opcode"
-version = "0.2.1"
+name = "VibeAgentTeam"
+version = "0.0.1"
 description = "GUI app and Toolkit for Claude Code"
 authors = ["mufeedvh", "123vviekr"]
 license = "AGPL-3.0"
-edition = "2021"
-default-run = "opcode"
+edition = "2024"
+default-run = "VibeAgentTeam"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "opcode"
+name = "VibeAgentTeam"
 path = "src/main.rs"
 
 [lib]
-name = "opcode_lib"
+name = "vibe_agent_team_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [[bin]]
-name = "opcode-web"
+name = "VibeAgentTeamWeb"
 path = "src/web_main.rs"
 
 [build-dependencies]
@@ -65,6 +65,10 @@ clap = { version = "4.0", features = ["derive"] }
 futures-util = "0.3"
 # Pin image to avoid edition2024 requirement
 image = "=0.25.1"
+
+# Local libraries
+git-tools = { path = "../src-libs/git-tools" }
+workspace = { path = "../src-libs/workspace" }
 
 
 [target.'cfg(target_os = "macos")'.dependencies]

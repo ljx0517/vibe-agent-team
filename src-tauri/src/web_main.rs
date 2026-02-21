@@ -7,8 +7,8 @@ mod process;
 mod web_server;
 
 #[derive(Parser)]
-#[command(name = "opcode-web")]
-#[command(about = "Opcode Web Server - Access Opcode from your phone")]
+#[command(name = "VibeAgentTeamWeb")]
+#[command(about = "Vibe Agent Team Web Server - Access from your phone")]
 struct Args {
     /// Port to run the web server on
     #[arg(short, long, default_value = "8080")]
@@ -25,7 +25,7 @@ async fn main() {
 
     let args = Args::parse();
 
-    println!("🚀 Starting Opcode Web Server...");
+    println!("🚀 Starting  Web Server...");
     println!(
         "📱 Will be accessible from phones at: http://{}:{}",
         args.host, args.port

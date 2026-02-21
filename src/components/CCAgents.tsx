@@ -193,7 +193,7 @@ export const CCAgents: React.FC<CCAgentsProps> = ({ onBack, className }) => {
       const filePath = await save({
         defaultPath: `${agent.name.toLowerCase().replace(/\s+/g, '-')}.opcode.json`,
         filters: [{
-          name: 'opcode Agent',
+          name: 'Vibe Agent Team Agent',
           extensions: ['opcode.json']
         }]
       });
@@ -222,7 +222,7 @@ export const CCAgents: React.FC<CCAgentsProps> = ({ onBack, className }) => {
       const filePath = await open({
         multiple: false,
         filters: [{
-          name: 'opcode Agent',
+          name: 'Vibe Agent Team Agent',
           extensions: ['opcode.json', 'json']
         }]
       });
