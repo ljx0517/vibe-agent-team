@@ -58,6 +58,10 @@ interface DbProject {
   workspace_id: string;
   workspace_path: string;
   initializing?: boolean;
+  progress?: {
+    step: string;
+    message: string;
+  } | null;
 }
 
 function AppContent() {
@@ -133,7 +137,7 @@ function AppContent() {
   useEffect(() => {
     if (view !== "three-level") return;
 
-    const unlisten = listen<string>("project-initialized", async (event) => {
+    const unlistenInitialized = listen<string>("project-initialized", async (event) => {
       console.log("Project initialized event received:", event.payload);
       // Refresh project list when a project finishes initialization
       try {
@@ -144,8 +148,22 @@ function AppContent() {
       }
     });
 
+    // Listen for project-progress event from backend
+    const unlistenProgress = listen<{project_id: string; step: string; message: string}>("project-progress", (event) => {
+      console.log("Project progress event received:", event.payload);
+      const { project_id, step, message } = event.payload;
+      // Update project progress in the list
+      setDbProjects(prev => prev.map(p => {
+        if (p.project_id === project_id) {
+          return { ...p, progress: { step, message } };
+        }
+        return p;
+      }));
+    });
+
     return () => {
-      unlisten.then(fn => fn());
+      unlistenInitialized.then(fn => fn());
+      unlistenProgress.then(fn => fn());
     };
   }, [view]);
 

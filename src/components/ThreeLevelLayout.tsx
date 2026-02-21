@@ -12,6 +12,12 @@ import { Input } from '@/components/ui/input';
 import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
 
+// 项目进度类型
+interface ProjectProgress {
+  step: string;
+  message: string;
+}
+
 // 项目类型
 interface ProjectInfo {
   project_id: string;
@@ -19,6 +25,7 @@ interface ProjectInfo {
   workspace_id: string;
   workspace_path: string;
   initializing?: boolean;
+  progress?: ProjectProgress | null;
 }
 
 // 成员类型
@@ -183,6 +190,25 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-sm truncate">{project.project_name}</div>
                     <div className="text-xs text-gray-400 truncate">{project.workspace_path}</div>
+                    {/* 进度条 */}
+                    {project.initializing && project.progress && (
+                      <div className="mt-1">
+                        <div className="flex items-center justify-between text-xs text-blue-500 mb-0.5">
+                          <span>{project.progress.message}</span>
+                        </div>
+                        <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500 transition-all duration-300"
+                            style={{
+                              width: project.progress.step === 'starting' ? '10%' :
+                                     project.progress.step === 'executing_claude' ? '50%' :
+                                     project.progress.step === 'parsing_json' ? '80%' :
+                                     project.progress.step === 'completed' ? '100%' : '30%'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {/* Loading 图标 */}
                   {project.initializing && (

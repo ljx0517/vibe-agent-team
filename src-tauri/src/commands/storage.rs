@@ -670,6 +670,13 @@ pub async fn storage_create_project(
     // Spawn background task to execute project team skill
     log::info!("Starting background task for project team skill...");
 
+    // Emit initial progress: starting background task
+    let _ = app.emit("project-progress", serde_json::json!({
+        "project_id": project_id,
+        "step": "starting",
+        "message": "启动后台任务..."
+    }));
+
     let app_clone = app.clone();
     let project_description = input.description.clone();
     let project_path = input.work_dir.clone();
@@ -680,6 +687,13 @@ pub async fn storage_create_project(
         log::info!("[Background Task] Starting project team skill for project: {}", project_name);
         log::info!("[Background Task] Project ID: {}", project_id_clone);
         log::info!("[Background Task] Working directory: {}", project_path);
+
+        // Emit progress: executing claude
+        let _ = app_clone.emit("project-progress", serde_json::json!({
+            "project_id": project_id_clone,
+            "step": "executing_claude",
+            "message": "正在调用 Claude Code..."
+        }));
 
         let members_result = execute_project_team_skill(
             &app_clone,
@@ -722,6 +736,13 @@ pub async fn storage_create_project(
                         ) {
                             log::error!("Failed to update project initialization status: {}", e);
                         } else {
+                            // Emit completion progress
+                            let _ = app_clone.emit("project-progress", serde_json::json!({
+                                "project_id": project_id_clone,
+                                "step": "completed",
+                                "message": "完成！"
+                            }));
+
                             // Emit event to frontend to refresh project list
                             log::info!("Emitting project-initialized event for project: {}", project_id_clone);
                             let _ = app_clone.emit("project-initialized", &project_id_clone);
@@ -1116,6 +1137,13 @@ pub async fn execute_project_team_skill(
     let stdout = String::from_utf8_lossy(&output.stdout);
     log::info!("Claude Code output length: {} chars", stdout.len());
     log::debug!("Claude Code output preview: {}", &stdout[..stdout.len().min(500)]);
+
+    // Emit progress: parsing json
+    let _ = app.emit("project-progress", serde_json::json!({
+        "project_id": "",
+        "step": "parsing_json",
+        "message": "正在解析 JSON..."
+    }));
 
     // 4. Parse the config.json from output
     log::info!("Parsing JSON from Claude output...");
