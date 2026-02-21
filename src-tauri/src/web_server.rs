@@ -19,6 +19,7 @@ use tower_http::services::ServeDir;
 use which;
 
 use crate::commands;
+use crate::process;
 
 // Find Claude binary for web mode - use bundled binary first
 fn find_claude_binary_web() -> Result<String, String> {
@@ -64,15 +65,38 @@ pub struct AppState {
     // Track active WebSocket sessions for Claude execution
     pub active_sessions:
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::Sender<String>>>>,
+    // Process registry for managing Claude processes
+    pub process_registry: Arc<process::ProcessRegistry>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ClaudeExecutionRequest {
-    pub project_path: String,
-    pub prompt: String,
-    pub model: Option<String>,
-    pub session_id: Option<String>,
-    pub command_type: String, // "execute", "continue", or "resume"
+#[serde(tag = "type")]
+pub enum ClaudeWebSocketMessage {
+    /// 启动新进程
+    Execute {
+        project_path: String,
+        prompt: String,
+        model: Option<String>,
+    },
+    /// 发送输入到现有进程
+    Send {
+        content: String,
+    },
+    /// 终止进程
+    Exit,
+    /// 继续对话
+    Continue {
+        project_path: String,
+        prompt: String,
+        model: Option<String>,
+    },
+    /// 恢复会话
+    Resume {
+        project_path: String,
+        session_id: String,
+        prompt: String,
+        model: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -358,96 +382,117 @@ async fn claude_websocket_handler(socket: WebSocket, state: AppState) {
                     text.len()
                 );
                 println!("[TRACE] WebSocket message content: {}", text);
-                match serde_json::from_str::<ClaudeExecutionRequest>(&text) {
-                    Ok(request) => {
-                        println!("[TRACE] Successfully parsed request: {:?}", request);
-                        println!("[TRACE] Command type: {}", request.command_type);
-                        println!("[TRACE] Project path: {}", request.project_path);
-                        println!("[TRACE] Prompt length: {} chars", request.prompt.len());
 
-                        // Execute Claude command based on request type
+                // 解析消息
+                match serde_json::from_str::<ClaudeWebSocketMessage>(&text) {
+                    Ok(message) => {
+                        println!("[TRACE] Successfully parsed message: {:?}", message);
+
                         let session_id_clone = session_id.clone();
                         let state_clone = state.clone();
 
-                        println!(
-                            "[TRACE] Spawning task to execute command: {}",
-                            request.command_type
-                        );
-                        tokio::spawn(async move {
-                            println!("[TRACE] Task started for command execution");
-                            let result = match request.command_type.as_str() {
-                                "execute" => {
-                                    println!("[TRACE] Calling execute_claude_command");
-                                    execute_claude_command(
-                                        request.project_path,
-                                        request.prompt,
-                                        request.model.unwrap_or_default(),
+                        match message {
+                            // 启动新进程
+                            ClaudeWebSocketMessage::Execute { project_path, prompt, model } => {
+                                println!("[TRACE] Executing new Claude process");
+                                tokio::spawn(async move {
+                                    let result = execute_claude_command(
+                                        project_path,
+                                        prompt,
+                                        model.unwrap_or_default(),
                                         session_id_clone.clone(),
                                         state_clone.clone(),
-                                    )
-                                    .await
-                                }
-                                "continue" => {
-                                    println!("[TRACE] Calling continue_claude_command");
-                                    continue_claude_command(
-                                        request.project_path,
-                                        request.prompt,
-                                        request.model.unwrap_or_default(),
-                                        session_id_clone.clone(),
-                                        state_clone.clone(),
-                                    )
-                                    .await
-                                }
-                                "resume" => {
-                                    println!("[TRACE] Calling resume_claude_command");
-                                    resume_claude_command(
-                                        request.project_path,
-                                        request.session_id.unwrap_or_default(),
-                                        request.prompt,
-                                        request.model.unwrap_or_default(),
-                                        session_id_clone.clone(),
-                                        state_clone.clone(),
-                                    )
-                                    .await
-                                }
-                                _ => {
-                                    println!(
-                                        "[TRACE] Unknown command type: {}",
-                                        request.command_type
-                                    );
-                                    Err("Unknown command type".to_string())
-                                }
-                            };
+                                    ).await;
 
-                            println!(
-                                "[TRACE] Command execution finished with result: {:?}",
-                                result
-                            );
-
-                            // Send completion message
-                            if let Some(sender) = state_clone
-                                .active_sessions
-                                .lock()
-                                .await
-                                .get(&session_id_clone)
-                            {
-                                let completion_msg = match result {
-                                    Ok(_) => json!({
-                                        "type": "completion",
-                                        "status": "success"
-                                    }),
-                                    Err(e) => json!({
-                                        "type": "completion",
-                                        "status": "error",
-                                        "error": e
-                                    }),
-                                };
-                                println!("[TRACE] Sending completion message: {}", completion_msg);
-                                let _ = sender.send(completion_msg.to_string()).await;
-                            } else {
-                                println!("[TRACE] Session not found in active sessions when sending completion");
+                                    // 发送完成消息
+                                    if let Some(sender) = state_clone.active_sessions.lock().await.get(&session_id_clone) {
+                                        let completion_msg = match result {
+                                            Ok(_) => json!({ "type": "complete", "success": true }),
+                                            Err(e) => json!({ "type": "error", "message": e }),
+                                        };
+                                        let _ = sender.send(completion_msg.to_string()).await;
+                                    }
+                                });
                             }
-                        });
+                            // 发送输入到进程
+                            ClaudeWebSocketMessage::Send { content } => {
+                                println!("[TRACE] Sending input to Claude process");
+                                tokio::spawn(async move {
+                                    // 从 session_id 获取 registry 中的进程
+                                    let registry = state_clone.process_registry.clone();
+                                    let result = registry.send_to_process_async(&session_id_clone, &content).await;
+
+                                    if let Some(sender) = state_clone.active_sessions.lock().await.get(&session_id_clone) {
+                                        match result {
+                                            Ok(_) => {
+                                                let _ = sender.send(json!({ "type": "sent" }).to_string()).await;
+                                            }
+                                            Err(e) => {
+                                                let _ = sender.send(json!({ "type": "error", "message": e }).to_string()).await;
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                            // 终止进程
+                            ClaudeWebSocketMessage::Exit => {
+                                println!("[TRACE] Exiting Claude process");
+                                let session_id_for_exit = session_id_clone.clone();
+                                let state_for_exit = state_clone.clone();
+                                tokio::spawn(async move {
+                                    let registry = state_for_exit.process_registry.clone();
+                                    // 使用 kill_process 方法
+                                    let _ = registry.kill_process(session_id_for_exit.clone()).await;
+
+                                    if let Some(sender) = state_for_exit.active_sessions.lock().await.get(&session_id_for_exit) {
+                                        let _ = sender.send(json!({ "type": "exited" }).to_string()).await;
+                                    }
+                                });
+                            }
+                            // 继续对话
+                            ClaudeWebSocketMessage::Continue { project_path, prompt, model } => {
+                                println!("[TRACE] Continue Claude process");
+                                tokio::spawn(async move {
+                                    let result = continue_claude_command(
+                                        project_path,
+                                        prompt,
+                                        model.unwrap_or_default(),
+                                        session_id_clone.clone(),
+                                        state_clone.clone(),
+                                    ).await;
+
+                                    if let Some(sender) = state_clone.active_sessions.lock().await.get(&session_id_clone) {
+                                        let completion_msg = match result {
+                                            Ok(_) => json!({ "type": "complete", "success": true }),
+                                            Err(e) => json!({ "type": "error", "message": e }),
+                                        };
+                                        let _ = sender.send(completion_msg.to_string()).await;
+                                    }
+                                });
+                            }
+                            // 恢复会话
+                            ClaudeWebSocketMessage::Resume { project_path, session_id, prompt, model } => {
+                                println!("[TRACE] Resume Claude session");
+                                tokio::spawn(async move {
+                                    let result = resume_claude_command(
+                                        project_path,
+                                        session_id,
+                                        prompt,
+                                        model.unwrap_or_default(),
+                                        session_id_clone.clone(),
+                                        state_clone.clone(),
+                                    ).await;
+
+                                    if let Some(sender) = state_clone.active_sessions.lock().await.get(&session_id_clone) {
+                                        let completion_msg = match result {
+                                            Ok(_) => json!({ "type": "complete", "success": true }),
+                                            Err(e) => json!({ "type": "error", "message": e }),
+                                        };
+                                        let _ = sender.send(completion_msg.to_string()).await;
+                                    }
+                                });
+                            }
+                        }
                     }
                     Err(e) => {
                         println!("[TRACE] Failed to parse WebSocket request: {}", e);
@@ -825,6 +870,7 @@ async fn send_to_session(state: &AppState, session_id: &str, message: String) {
 pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         active_sessions: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        process_registry: Arc::new(process::ProcessRegistry::new()),
     };
 
     // CORS layer to allow requests from phone browsers

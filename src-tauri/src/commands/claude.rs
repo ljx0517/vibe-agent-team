@@ -11,6 +11,12 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 /// Global state to track current Claude process
+///
+/// ⚠️ DEPRECATED: 此结构已被 ProcessRegistry 替代
+///
+/// 旧架构：只能存储单个进程句柄
+/// 新架构：使用 ProcessRegistry 管理多个进程，并支持 stdin 交互
+#[deprecated(since = "0.2.0", note = "使用 ProcessRegistry 替代")]
 pub struct ClaudeProcessState {
     pub current_process: Arc<Mutex<Option<Child>>>,
 }
@@ -299,6 +305,7 @@ fn create_system_command(claude_path: &str, args: Vec<String>, project_path: &st
     }
 
     cmd.current_dir(project_path)
+        .stdin(Stdio::piped())   // 添加 stdin 支持持续交互
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -1069,7 +1076,9 @@ pub async fn cancel_claude_execution(
         }
     }
 
-    // Method 2: Try the legacy approach via ClaudeProcessState
+    // Method 2: ⚠️ DEPRECATED - 旧架构兼容，仅作为保底方案
+    // 新架构使用 ProcessRegistry，此处保留仅用于向后兼容
+    #[allow(deprecated)]
     if !killed {
         let claude_state = app.state::<ClaudeProcessState>();
         let mut current_process = claude_state.current_process.lock().await;
@@ -1123,15 +1132,13 @@ pub async fn cancel_claude_execution(
                     }
                 }
             }
-            attempted_methods.push("claude_state");
+            attempted_methods.push("claude_state (deprecated)");
         } else {
-            log::warn!("No active Claude process in ClaudeProcessState");
+            log::warn!("No active Claude process in ClaudeProcessState (deprecated)");
         }
     }
 
-    if !killed && attempted_methods.is_empty() {
-        log::warn!("No active Claude process found to cancel");
-    }
+    // ⚠️ DEPRECATED: 此代码路径已废弃，使用 ProcessRegistry 管理进程
 
     // Always emit cancellation events for UI consistency
     if let Some(sid) = session_id {
@@ -1192,9 +1199,10 @@ async fn spawn_claude_process(
         .spawn()
         .map_err(|e| format!("Failed to spawn Claude: {}", e))?;
 
-    // Get stdout and stderr
+    // Get stdout, stderr and stdin
     let stdout = child.stdout.take().ok_or("Failed to get stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to get stderr")?;
+    let stdin = child.stdin.take().ok_or("Failed to get stdin")?;
 
     // Get the child PID for logging
     let pid = child.id().unwrap_or(0);
@@ -1208,8 +1216,16 @@ async fn spawn_claude_process(
     let session_id_holder: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let run_id_holder: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
-    // Store the child process in the global state (for backward compatibility)
-    let claude_state = app.state::<ClaudeProcessState>();
+    // 存储到 ProcessRegistry (新架构) + ClaudeProcessState (旧架构兼容)
+    #[allow(deprecated)]
+    let claude_state = app.state::<ClaudeProcessState>(); // ⚠️ DEPRECATED
+    let registry = app.state::<crate::process::ProcessRegistryState>();
+
+    // 用于存储 child 和 stdin 的引用，供后续使用
+    let child_arc = Arc::new(Mutex::new(Some(child)));
+    let stdin_arc = Arc::new(Mutex::new(Some(stdin)));
+
+    // ⚠️ DEPRECATED: 保留旧逻辑以向后兼容，新代码应只使用 ProcessRegistry
     {
         let mut current_process = claude_state.current_process.lock().await;
         // If there's already a process running, kill it first
@@ -1217,7 +1233,10 @@ async fn spawn_claude_process(
             log::warn!("Killing existing Claude process before starting new one");
             let _ = existing_child.kill().await;
         }
-        *current_process = Some(child);
+        // 从 Arc 获取 child
+        if let Some(c) = child_arc.lock().unwrap().take() {
+            *current_process = Some(c);
+        }
     }
 
     // Spawn tasks to read stdout and stderr
@@ -1229,6 +1248,11 @@ async fn spawn_claude_process(
     let project_path_clone = project_path.clone();
     let prompt_clone = prompt.clone();
     let model_clone = model.clone();
+
+    // 传递 child 和 stdin 的 Arc 引用到异步任务
+    let child_arc_clone = child_arc.clone();
+    let stdin_arc_clone = stdin_arc.clone();
+
     let stdout_task = tokio::spawn(async move {
         let mut lines = stdout_reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -1243,22 +1267,32 @@ async fn spawn_claude_process(
                             *session_id_guard = Some(claude_session_id.to_string());
                             log::info!("Extracted Claude session ID: {}", claude_session_id);
 
-                            // Now register with ProcessRegistry using Claude's session ID
-                            match registry_clone.register_claude_session(
-                                claude_session_id.to_string(),
-                                pid,
-                                project_path_clone.clone(),
-                                prompt_clone.clone(),
-                                model_clone.clone(),
-                            ) {
-                                Ok(run_id) => {
-                                    log::info!("Registered Claude session with run_id: {}", run_id);
-                                    let mut run_id_guard = run_id_holder_clone.lock().unwrap();
-                                    *run_id_guard = Some(run_id);
+                            // 从 Arc 中获取 child 和 stdin
+                            let child = child_arc_clone.lock().unwrap().take();
+                            let stdin = stdin_arc_clone.lock().unwrap().take();
+
+                            if let (Some(c), Some(s)) = (child, stdin) {
+                                // Now register with ProcessRegistry using Claude's session ID
+                                match registry_clone.register_claude_session(
+                                    claude_session_id.to_string(),
+                                    pid,
+                                    project_path_clone.clone(),
+                                    prompt_clone.clone(),
+                                    model_clone.clone(),
+                                    c,
+                                    s,
+                                ) {
+                                    Ok(run_id) => {
+                                        log::info!("Registered Claude session with run_id: {}", run_id);
+                                        let mut run_id_guard = run_id_holder_clone.lock().unwrap();
+                                        *run_id_guard = Some(run_id);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to register Claude session: {}", e);
+                                    }
                                 }
-                                Err(e) => {
-                                    log::error!("Failed to register Claude session: {}", e);
-                                }
+                            } else {
+                                log::error!("Failed to get child or stdin for registration");
                             }
                         }
                     }

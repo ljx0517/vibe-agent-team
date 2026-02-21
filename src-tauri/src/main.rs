@@ -145,7 +145,8 @@ fn main() {
             // Initialize process registry
             app.manage(ProcessRegistryState::default());
 
-            // Initialize Claude process state
+            // Initialize Claude process state (⚠️ DEPRECATED: 旧架构，已迁移到 ProcessRegistry)
+            #[allow(deprecated)]
             app.manage(ClaudeProcessState::default());
 
             // Apply window vibrancy with rounded corners on macOS

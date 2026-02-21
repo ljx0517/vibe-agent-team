@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::process::Child;
+use tokio::process::{Child, ChildStdin};
 use uuid::Uuid;
 
 /// Type of process being tracked
@@ -34,6 +34,7 @@ pub struct ProcessInfo {
 pub struct ProcessHandle {
     pub info: ProcessInfo,
     pub child: Arc<Mutex<Option<Child>>>,
+    pub stdin: Arc<Mutex<Option<ChildStdin>>>,  // 新增：独立的 stdin 句柄
     pub live_output: Arc<Mutex<String>>,
 }
 
@@ -108,6 +109,7 @@ impl ProcessRegistry {
         let process_handle = ProcessHandle {
             info: process_info,
             child: Arc::new(Mutex::new(None)), // No tokio::process::Child handle for sidecar
+            stdin: Arc::new(Mutex::new(None)),
             live_output: Arc::new(Mutex::new(String::new())),
         };
 
@@ -115,7 +117,7 @@ impl ProcessRegistry {
         Ok(())
     }
 
-    /// Register a new Claude session (without child process - handled separately)
+    /// Register a new Claude session with child process and stdin
     pub fn register_claude_session(
         &self,
         session_id: String,
@@ -123,6 +125,8 @@ impl ProcessRegistry {
         project_path: String,
         task: String,
         model: String,
+        child: Child,
+        stdin: ChildStdin,
     ) -> Result<String, String> {
         let run_id = Uuid::new_v4().to_string();
 
@@ -136,12 +140,12 @@ impl ProcessRegistry {
             model,
         };
 
-        // Register without child - Claude sessions use ClaudeProcessState for process management
         let mut processes = self.processes.lock().map_err(|e| e.to_string())?;
 
         let process_handle = ProcessHandle {
             info: process_info,
-            child: Arc::new(Mutex::new(None)), // No child handle for Claude sessions
+            child: Arc::new(Mutex::new(Some(child))),
+            stdin: Arc::new(Mutex::new(Some(stdin))),
             live_output: Arc::new(Mutex::new(String::new())),
         };
 
@@ -161,6 +165,7 @@ impl ProcessRegistry {
         let process_handle = ProcessHandle {
             info: process_info,
             child: Arc::new(Mutex::new(Some(child))),
+            stdin: Arc::new(Mutex::new(None)),
             live_output: Arc::new(Mutex::new(String::new())),
         };
 
@@ -486,6 +491,33 @@ impl ProcessRegistry {
         } else {
             Ok(String::new())
         }
+    }
+
+    /// Send input to a Claude process via stdin (async version)
+    pub async fn send_to_process_async(&self, run_id: &str, content: &str) -> Result<(), String> {
+        // 先获取 stdin句柄，释放锁后再使用
+        let stdin = {
+            let processes = self.processes.lock().map_err(|e| e.to_string())?;
+            let handle = processes.get(run_id).ok_or("Process not found")?;
+            let mut stdin_guard = handle.stdin.lock().map_err(|e| e.to_string())?;
+            stdin_guard.take() // 取出 stdin 并释放锁
+        };
+
+        if let Some(mut stdin) = stdin {
+            use tokio::io::AsyncWriteExt;
+            let msg = serde_json::json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": content
+                }
+            });
+            stdin.write_all(msg.to_string().as_bytes()).await.map_err(|e| e.to_string())?;
+            stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
+            stdin.flush().await.map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        Err("stdin not available".to_string())
     }
 
     /// Cleanup finished processes
