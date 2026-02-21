@@ -721,6 +721,10 @@ pub async fn storage_create_project(
                             params![project_id_clone],
                         ) {
                             log::error!("Failed to update project initialization status: {}", e);
+                        } else {
+                            // Emit event to frontend to refresh project list
+                            log::info!("Emitting project-initialized event for project: {}", project_id_clone);
+                            let _ = app_clone.emit("project-initialized", &project_id_clone);
                         }
                     }
                     Err(e) => {

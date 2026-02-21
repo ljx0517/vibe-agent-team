@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Bot, FolderCode, Layout } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { api, type Project, type Session, type ClaudeMdFile } from "@/lib/api";
 import { initializeWebMode } from "@/lib/apiAdapter";
 import { OutputCacheProvider } from "@/lib/outputCache";
@@ -126,6 +127,26 @@ function AppContent() {
       };
       loadDbProjects();
     }
+  }, [view]);
+
+  // Listen for project-initialized event from backend
+  useEffect(() => {
+    if (view !== "three-level") return;
+
+    const unlisten = listen<string>("project-initialized", async (event) => {
+      console.log("Project initialized event received:", event.payload);
+      // Refresh project list when a project finishes initialization
+      try {
+        const result = await invoke<DbProject[]>("storage_list_projects");
+        setDbProjects(result);
+      } catch (error) {
+        console.error("刷新项目列表失败:", error);
+      }
+    });
+
+    return () => {
+      unlisten.then(fn => fn());
+    };
   }, [view]);
 
   // Keyboard shortcuts for tab navigation
