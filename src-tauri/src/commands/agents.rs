@@ -1968,10 +1968,10 @@ pub async fn fetch_github_agents() -> Result<Vec<GitHubAgentFile>, String> {
         .await
         .map_err(|e| format!("Failed to parse GitHub response: {}", e))?;
 
-    // Filter only .opcode.json agent files
+    // Filter only .vibe-agent-team-agents.json agent files
     let agent_files: Vec<GitHubAgentFile> = api_files
         .into_iter()
-        .filter(|f| f.name.ends_with(".opcode.json") && f.file_type == "file")
+        .filter(|f| f.name.ends_with(".vibe-agent-team-agents.json") && f.file_type == "file")
         .filter_map(|f| {
             f.download_url.map(|download_url| GitHubAgentFile {
                 name: f.name,
@@ -2137,7 +2137,7 @@ pub async fn generate_team_members(
     let claude_path = find_claude_binary(&app)?;
 
     // Create a temporary directory for the prompt execution
-    let temp_dir = std::env::temp_dir().join(format!("opcode_team_{}", Uuid::new_v4()));
+    let temp_dir = std::env::temp_dir().join(format!("vibeagentteam_{}", Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp directory: {}", e))?;
 

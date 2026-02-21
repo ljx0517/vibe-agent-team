@@ -1,4 +1,4 @@
-# Opcode - NixOS Build & Development Commands
+# Vibe Agent Team - NixOS Build & Development Commands
 
 # Show available commands
 default:
