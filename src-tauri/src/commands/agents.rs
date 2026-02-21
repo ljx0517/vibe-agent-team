@@ -225,7 +225,7 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
         .expect("Failed to get app data dir");
     std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
 
-    let db_path = app_dir.join("agents.db");
+    let db_path = app_dir.join("VibeAgentTeam.db");
     let conn = Connection::open(db_path)?;
 
     // Create agents table
@@ -967,7 +967,7 @@ async fn spawn_agent_system(
         .path()
         .app_data_dir()
         .expect("Failed to get app data dir");
-    let db_path = app_dir.join("agents.db");
+    let db_path = app_dir.join("VibeAgentTeam.db");
 
     // Shared state for collecting session ID and live output
     let session_id = std::sync::Arc::new(Mutex::new(String::new()));
@@ -1617,7 +1617,7 @@ pub async fn stream_session_output(
                 app.path()
                     .app_data_dir()
                     .expect("Failed to get app data dir")
-                    .join("agents.db"),
+                    .join("VibeAgentTeam.db"),
             ) {
                 if let Ok(status) = conn.query_row(
                     "SELECT status FROM agent_runs WHERE id = ?1",

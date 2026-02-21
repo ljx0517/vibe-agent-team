@@ -37,7 +37,7 @@ pub fn find_claude_binary(app_handle: &tauri::AppHandle) -> Result<String, Strin
 
     // First check if we have a stored path and preference in the database
     if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
-        let db_path = app_data_dir.join("agents.db");
+        let db_path = app_data_dir.join("VibeAgentTeam.db");
         if db_path.exists() {
             if let Ok(conn) = rusqlite::Connection::open(&db_path) {
                 // Check for stored path first
