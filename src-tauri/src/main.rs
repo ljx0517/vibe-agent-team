@@ -41,6 +41,7 @@ use commands::storage::{
     check_directory_status, storage_create_project, storage_list_projects,
     create_workspace_marker, storage_delete_row, storage_execute_sql, storage_insert_row,
     storage_list_tables, storage_read_table, storage_reset_database, storage_update_row,
+    create_project_team_skill, complete_project_initialization,
 };
 use commands::usage::{
     get_session_stats, get_usage_by_date_range, get_usage_details, get_usage_stats,
@@ -288,6 +289,8 @@ fn main() {
             create_workspace_marker,
             storage_create_project,
             storage_list_projects,
+            complete_project_initialization,
+            create_project_team_skill,
             // Slash Commands
             commands::slash_commands::slash_commands_list,
             commands::slash_commands::slash_command_get,

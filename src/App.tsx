@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Bot, FolderCode, Layout } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { api, type Project, type Session, type ClaudeMdFile, type Agent } from "@/lib/api";
+import { api, type Project, type Session, type ClaudeMdFile } from "@/lib/api";
 import { initializeWebMode } from "@/lib/apiAdapter";
 import { OutputCacheProvider } from "@/lib/outputCache";
 import { TabProvider } from "@/contexts/TabContext";
@@ -56,6 +56,7 @@ interface DbProject {
   project_code?: string;
   workspace_id: string;
   workspace_path: string;
+  initializing?: boolean;
 }
 
 function AppContent() {
@@ -67,6 +68,7 @@ function AppContent() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [editingClaudeFile, setEditingClaudeFile] = useState<ClaudeMdFile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [_error, setError] = useState<string | null>(null);
   const [showNFO, setShowNFO] = useState(false);
   const [showClaudeBinaryDialog, setShowClaudeBinaryDialog] = useState(false);
@@ -420,6 +422,8 @@ function AppContent() {
           <ThreeLevelLayout
             projects={dbProjects}
             members={[]}
+            isCreatingProject={isCreatingProject}
+            onCreatingProjectChange={setIsCreatingProject}
             onAddClick={async (project) => {
               console.log("新建项目:", project);
               try {
@@ -439,26 +443,17 @@ function AppContent() {
                 const updatedProjects = await invoke<DbProject[]>("storage_list_projects");
                 setDbProjects(updatedProjects);
 
-                // 生成团队成员
-                try {
-                  const teamMembers = await invoke<Agent[]>("generate_team_members", {
-                    projectName: project.name,
-                  });
-                  console.log("团队成员生成成功:", teamMembers);
-                  setToast({
-                    message: `项目创建成功！已生成团队成员: ${teamMembers.map(m => m.name).join(", ")}`,
-                    type: "success"
-                  });
-                } catch (teamError: any) {
-                  console.error("生成团队成员失败:", teamError);
-                  // 不阻塞项目创建流程，团队成员创建失败不影响项目本身，但提示用户
-                  setToast({
-                    message: `项目创建成功，但团队成员生成失败: ${teamError?.toString() || "未知错误"}`,
-                    type: "error"
-                  });
-                }
+                // 项目创建完成，关闭 loading 状态
+                setIsCreatingProject(false);
+
+                setToast({
+                  message: `项目创建成功！`,
+                  type: "success"
+                });
               } catch (error: any) {
                 console.error("创建项目失败:", error);
+                // 发生错误也要关闭 loading 状态
+                setIsCreatingProject(false);
                 setToast({
                   message: `创建项目失败: ${error?.toString() || "未知错误"}`,
                   type: "error"

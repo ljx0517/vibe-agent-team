@@ -25,12 +25,16 @@ interface CreateProjectDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (project: { name: string; projectCode?: string; description: string; workDir: string }) => void;
+  isLoading?: boolean;
+  onLoadingChange?: (isLoading: boolean) => void;
 }
 
 export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
   isOpen,
   onClose,
   onConfirm,
+  isLoading = false,
+  onLoadingChange,
 }) => {
   const [name, setName] = useState("");
   const [projectCode, setProjectCode] = useState("");
@@ -96,13 +100,15 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
       setWorkDirError("请选择空文件夹或已初始化的工作空间");
       return;
     }
+    // 设置 loading 状态
+    onLoadingChange?.(true);
     onConfirm({
       name: name.trim(),
       projectCode: projectCode.trim() || undefined,
       description: description.trim(),
       workDir: workDir.trim(),
     });
-    // 重置表单
+    // 重置表单（保持 loading 状态由父组件控制）
     setName("");
     setProjectCode("");
     setDescription("");
@@ -231,10 +237,12 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={isLoading}>
             取消
           </Button>
-          <Button onClick={handleConfirm}>创建</Button>
+          <Button onClick={handleConfirm} disabled={isLoading}>
+            {isLoading ? "创建中..." : "创建"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

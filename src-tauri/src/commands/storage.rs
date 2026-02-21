@@ -615,6 +615,7 @@ pub struct CreateProjectInput {
     pub project_code: Option<String>,
     pub description: String,
     pub work_dir: String,
+    pub prompt: Option<String>,
 }
 
 /// Project creation result
@@ -624,70 +625,142 @@ pub struct CreateProjectResult {
     pub workspace_id: String,
 }
 
-/// Create a new project with associated workspace
+/// Create a new project with associated workspace (synchronous, returns immediately)
 #[tauri::command]
 pub async fn storage_create_project(
     db: State<'_, AgentDb>,
     app: AppHandle,
     input: CreateProjectInput,
 ) -> Result<CreateProjectResult, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    log::info!("========== Starting project creation ==========");
+    log::info!("Project name: {}", input.name);
+    log::info!("Work directory: {}", input.work_dir);
 
     let project_id = Uuid::new_v4().to_string();
     let workspace_id = Uuid::new_v4().to_string();
 
-    // Insert into projects table
-    conn.execute(
-        "INSERT INTO projects (id, name, project_code, working_dir, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
-        params![project_id, input.name, input.project_code, input.work_dir],
-    )
-    .map_err(|e| format!("创建项目失败: {}", e))?;
+    log::info!("Generated project_id: {}", project_id);
+    log::info!("Generated workspace_id: {}", workspace_id);
 
-    // Insert into workspaces table with the project path and name
-    conn.execute(
-        "INSERT INTO workspaces (id, name, path, created_at, updated_at)
-         VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
-        params![workspace_id, input.name, input.work_dir],
-    )
-    .map_err(|e| format!("创建工作空间失败: {}", e))?;
-    log::info!(
-        "create workspace in: {}",
-        input.work_dir
-    );
+    // Insert project and workspace with a scoped lock
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    // Build the team formation prompt
-    let prompt = format!(
-        "我(产品经理)正在为一个项目组建一个开发团队(agent team)，项目名叫\"{}\"，你叫\"王大锤\"作为Team Lead还需要一个评审人叫\"李小锤\"，\
-        李小锤在项目团队内充当devil's advocate的角色，李小锤是一个资深的IT专家，对一个项目从立项到最后的增长运维的各个环节都是专家，\
-        目前团队(agent team)内只有两个人, 后续环节人员待定，现在只需要把团队(agent team)组建好就行了。无需确认。",
-        input.name
-    );
+        // Insert into projects table (initializing = 1 means "initializing")
+        conn.execute(
+            "INSERT INTO projects (id, name, project_code, working_dir, prompt, initializing, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'), datetime('now'))",
+            params![project_id, input.name, input.project_code, input.work_dir, input.prompt],
+        )
+        .map_err(|e| format!("创建项目失败: {}", e))?;
 
-    // Call Claude to form the team in background (don't wait for completion)
+        log::info!("Project inserted into database with initializing=1");
+
+        // Insert into workspaces table
+        conn.execute(
+            "INSERT INTO workspaces (id, name, path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
+            params![workspace_id, input.name, input.work_dir],
+        )
+        .map_err(|e| format!("创建工作空间失败: {}", e))?;
+
+        log::info!("create workspace in: {}", input.work_dir);
+    }
+
+    // Spawn background task to execute project team skill
+    log::info!("Starting background task for project team skill...");
+
     let app_clone = app.clone();
+    let project_description = input.description.clone();
     let project_path = input.work_dir.clone();
+    let project_name = input.name.clone();
+    let project_id_clone = project_id.clone();
+
     tokio::spawn(async move {
-        // Import the claude module commands
-        use crate::commands::claude::execute_claude_code;
+        log::info!("[Background Task] Starting project team skill for project: {}", project_name);
+        log::info!("[Background Task] Project ID: {}", project_id_clone);
+        log::info!("[Background Task] Working directory: {}", project_path);
 
-        // Use default model "sonnet" if not specified
-        let model = "sonnet".to_string();
+        let members_result = execute_project_team_skill(
+            &app_clone,
+            project_name,
+            project_description,
+            project_path,
+        ).await;
 
-        match execute_claude_code(app_clone, project_path, prompt, model).await {
-            Ok(_) => {
-                log::info!("Claude team formation completed successfully");
+        match members_result {
+            Ok(members) => {
+                log::info!("Project team skill completed, {} members generated", members.len());
+
+                // Save members to agents table by reopening database connection
+                match init_database(&app_clone) {
+                    Ok(conn) => {
+                        for member in members {
+                            let agent_id = Uuid::new_v4().to_string();
+                            let icon = member.color.unwrap_or_else(|| "🤖".to_string());
+                            let system_prompt = member.prompt.unwrap_or_default();
+                            let model = member.model.unwrap_or_else(|| "sonnet".to_string());
+
+                            match conn.execute(
+                                "INSERT INTO agents (id, project_id, name, icon, system_prompt, model, created_at, updated_at)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'), datetime('now'))",
+                                params![agent_id, project_id_clone, member.name, icon, system_prompt, model],
+                            ) {
+                                Ok(_) => {
+                                    log::info!("Created agent: {} for project {}", member.name, project_id_clone);
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to create agent {}: {}", member.name, e);
+                                }
+                            }
+                        }
+
+                        // Mark project as initialized
+                        if let Err(e) = conn.execute(
+                            "UPDATE projects SET initializing = 0, updated_at = datetime('now') WHERE id = ?1",
+                            params![project_id_clone],
+                        ) {
+                            log::error!("Failed to update project initialization status: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to open database in background: {}", e);
+                    }
+                }
             }
             Err(e) => {
-                log::error!("Failed to communicate with Claude: {}", e);
+                log::error!("Failed to execute project team skill: {}", e);
             }
         }
     });
 
+    log::info!("========== Project creation request completed ==========");
+    log::info!("Returning to frontend. Project will show as 'initializing' until background task completes.");
+    log::info!("Project ID: {}, Workspace ID: {}", project_id, workspace_id);
+
     Ok(CreateProjectResult {
-        project_id,
+        project_id: project_id.clone(),
         workspace_id,
     })
+}
+
+/// Complete project initialization (called after background skill execution)
+#[tauri::command]
+pub async fn complete_project_initialization(
+    db: State<'_, AgentDb>,
+    project_id: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE projects SET initializing = 0, updated_at = datetime('now') WHERE id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("更新项目初始化状态失败: {}", e))?;
+
+    log::info!("Project {} initialization completed", project_id);
+
+    Ok(())
 }
 
 /// Project with workspace info
@@ -698,6 +771,7 @@ pub struct ProjectWithWorkspace {
     pub project_code: Option<String>,
     pub workspace_id: String,
     pub workspace_path: String,
+    pub initializing: bool,
 }
 
 /// List all projects with their workspaces
@@ -709,7 +783,7 @@ pub async fn storage_list_projects(
 
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.name, p.project_code, w.id, w.path
+            "SELECT p.id, p.name, p.project_code, w.id, w.path, COALESCE(p.initializing, 0) as initializing
              FROM projects p
              LEFT JOIN workspaces w ON w.name = p.name
              ORDER BY p.created_at DESC",
@@ -724,6 +798,7 @@ pub async fn storage_list_projects(
                 project_code: row.get(2)?,
                 workspace_id: row.get(3)?,
                 workspace_path: row.get(4)?,
+                initializing: row.get::<_, i32>(5)? != 0,
             })
         })
         .map_err(|e| e.to_string())?
@@ -731,4 +806,392 @@ pub async fn storage_list_projects(
         .collect();
 
     Ok(projects)
+}
+
+/// Create project team skill and invoke it
+/// This method:
+/// 1. Creates the SKILL.md file in .claude/skills/create-project-team/
+/// 2. Invokes the /create-project-team skill with project details
+#[tauri::command]
+pub async fn create_project_team_skill(
+    app: AppHandle,
+    project_name: String,
+    project_description: String,
+    workspace_path: String,
+) -> Result<String, String> {
+    use std::path::Path;
+    use std::fs;
+
+    log::info!("Creating project team skill for: {}", project_name);
+
+    // 1. Create skill directory
+    let skill_dir = Path::new(&workspace_path)
+        .join(".claude")
+        .join("skills")
+        .join("create-project-team");
+
+    fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+
+    // 2. Write SKILL.md file
+    let skill_content = r#"---
+name: create-project-team
+description: 为项目创建开发团队，生成 Team Lead 和 Reviewer（Devil's Advocate）信息，创建团队配置文件
+argument-hint: <project-name> <project-description> <workspace-path>
+disable-model-invocation: true
+---
+
+# Create Project Team
+
+为项目创建开发团队，生成 Team Lead 和 Reviewer 成员信息。
+
+## 输入参数
+
+- `$0` = project-name（项目名称）
+- `$1` = project-description（项目描述）
+- `$2` = workspace-path（工作目录路径）
+
+## 执行步骤
+
+### 1. 随机生成两个人名
+
+从以下列表中随机选择 2 个英文名，确保性别不同（一人男，一人女）：
+
+**男性英文名：**
+- Oliver, James, William, Benjamin, Lucas, Henry, Alexander, Ethan, Daniel, Matthew
+- Henry, Joseph, David, Samuel, Ryan, Nathan, Christopher, Andrew, Joshua, Benjamin
+- Jack, Thomas, Charles, Connor, Sebastian, Adam, Julian, Gabriel, Dylan, Luke
+
+**女性英文名：**
+- Sophia, Emma, Olivia, Isabella, Ava, Mia, Charlotte, Amelia, Harper, Evelyn
+- Sophie, Grace, Chloe, Victoria, Riley, Aria, Lily, Aurora, Zoey, Penelope
+- Layla, Scarlett, Sage, Violet, Ruby, Flora, Pearl, Iris, Jade, Cedar
+
+### 2. 翻译成中文名（5字以内）
+
+翻译规则：
+- 男性常见中文名：奥利弗、詹姆斯、威廉、卢卡斯、亨利、亚历山大、伊桑、丹尼尔、马修、约瑟夫、大卫、塞缪尔、瑞安、克里斯托弗、安德鲁、乔舒亚、杰克、托马斯、查尔斯、塞巴斯蒂安
+- 女性常见中文名：苏菲、艾玛、奥利维亚、伊莎贝拉、艾娃、米娅、夏洛特、艾米丽、伊芙琳、格雷丝、克洛伊、维多利亚、莱莉、艾莉娅、莉莉、紫罗兰、露比、弗洛拉
+
+### 3. 生成 Reviewer Prompt
+
+为 reviewer 生成 devil's advocate 角色的 prompt：
+
+```markdown
+你是 {{reviewer_name}}，项目 {{project_name}} 的资深技术评审专家（Devil's Advocate）。
+
+## 角色背景
+- 20年以上IT行业经验
+- 精通需求分析、系统架构、设计模式、编码规范
+- 熟悉从立项到运维的全生命周期
+- 擅长发现问题、提出质疑、推动改进
+- 严格审查技术方案，确保质量和可行性
+
+## 评审原则
+1. 质疑一切不合理的假设
+2. 挑战模糊或不完整的需求
+3. 检查方案的扩展性和维护性
+4. 确保安全性和性能考量
+5. 验证测试覆盖的完整性
+
+## 沟通风格
+- 理性、直接、客观
+- 用数据和事实支持观点
+- 提供建设性的替代方案
+
+当团队讨论技术方案时，你必须：
+- 指出潜在风险和漏洞
+- 提问挑战现有假设
+- 要求澄清模糊点
+- 推荐更好的替代方案
+```
+
+### 4. 生成 team-name（合法文件夹名）
+
+将项目名转换为合法文件夹名：
+- 转小写
+- 空格替换为 `-`
+- 移除非法字符（`/:?*"<>|`）
+- 连续短横线合并为一个
+- 不能有中文字符
+
+示例：
+- "My Project 123!" → `my-project-123`
+- "AI Agent 🤖" → `ai-agent`
+
+### 5. 生成随机颜色
+
+从以下颜色中随机选择一个：
+- `#FF6B6B`, `#4ECDC4`, `#45B7D1`, `#96CEB4`, `#FFEAA7`, `#DDA0DD`, `#98D8C8`, `#F7DC6F`, `#BB8FCE`, `#85C1E9`
+
+### 6. 创建团队配置文件
+
+获取当前时间戳（毫秒）：
+
+```bash
+date +%s000
+```
+
+创建目录并写入 config.json：
+
+```bash
+mkdir -p ~/.claude/teams/{team-name}
+mkdir -p ~/.claude/tasks/{team-name}
+```
+
+config.json 内容：
+
+```json
+{
+  "name": "{{project_name}}",
+  "description": "{{project_description}}｜{{project_name}}项目开发团队 - Team Lead {{leader_name}}",
+  "createdAt": {{current_timestamp}},
+  "leadAgentId": "{{leader_en_name}}@{{project_name}}",
+  "leadSessionId": "{{uuid}}",
+  "members": [
+    {
+      "agentId": "{{leader_en_name}}@{{project_name}}",
+      "name": "{{leader_en_name}}",
+      "agentType": "{{leader_en_name}}",
+      "model": "",
+      "joinedAt": {{current_timestamp}},
+      "tmuxPaneId": "",
+      "cwd": "{{workspace_path}}",
+      "subscriptions": []
+    },
+    {
+      "agentId": "{{reviewer_en_name}}@{{project_name}}",
+      "name": "{{reviewer_en_name}}",
+      "agentType": "general-purpose",
+      "model": "",
+      "prompt": "{{reviewer_prompt}}",
+      "color": "{{random_color}}",
+      "planModeRequired": false,
+      "joinedAt": {{current_timestamp}},
+      "tmuxPaneId": "",
+      "cwd": "{{workspace_path}}",
+      "subscriptions": [],
+      "backendType": "auto"
+    }
+  ]
+}
+```
+
+## 输出格式
+
+然后只要输出已创建的 config.json 完整内容（确保输出是有效 JSON 格式，不需要其他内容）。
+
+## 注意事项
+
+- team-name 必须是合法的文件夹名称
+- 确保 JSON 格式正确（无尾随逗号）
+- 使用当前时间戳
+- workspace-path 使用调用时传入的实际路径
+"#;
+
+    let skill_path = skill_dir.join("SKILL.md");
+    fs::write(&skill_path, skill_content)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    log::info!("SKILL.md created at: {:?}", skill_path);
+
+    // 3. Find Claude binary and invoke the skill
+    let claude_path = crate::claude_binary::find_claude_binary(&app)?;
+
+    // Build the skill invocation command
+    let skill_invocation = format!(
+        "/create-project-team \"{}\" \"{}\" {}",
+        project_name, project_description, workspace_path
+    );
+
+    // Execute Claude Code with the skill invocation
+    let mut cmd = std::process::Command::new(&claude_path);
+    cmd.arg("--print")
+        .arg("--init")
+        .arg("--dangerously-skip-permissions")
+        .arg(&skill_invocation)
+        .current_dir(&workspace_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    log::info!("Executing: claude --print --init --dangerously-skip-permissions {}", skill_invocation);
+
+    let output = cmd.output()
+        .map_err(|e| format!("Failed to execute Claude Code: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::error!("Claude Code execution failed: {}", stderr);
+        return Err(format!("Skill execution failed: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    log::info!("Skill execution output: {}", stdout);
+
+    Ok(format!("Skill created and executed successfully. Output:\n{}", stdout))
+}
+
+/// Team member data from skill output
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TeamMember {
+    pub agent_id: String,
+    pub name: String,
+    pub agent_type: String,
+    pub model: Option<String>,
+    pub prompt: Option<String>,
+    pub color: Option<String>,
+    pub cwd: Option<String>,
+}
+
+/// Execute project team skill and parse members from output
+pub async fn execute_project_team_skill(
+    app: &AppHandle,
+    project_name: String,
+    project_description: String,
+    workspace_path: String,
+) -> Result<Vec<TeamMember>, String> {
+    use std::path::Path;
+    use std::fs;
+
+    log::info!("Executing project team skill for: {}", project_name);
+
+    // 1. Create skill directory
+    let skill_dir = Path::new(&workspace_path)
+        .join(".claude")
+        .join("skills")
+        .join("create-project-team");
+
+    fs::create_dir_all(&skill_dir)
+        .map_err(|e| format!("Failed to create skill directory: {}", e))?;
+
+    // 2. Write SKILL.md file (same as create_project_team_skill)
+    let skill_content = include_str!("templates/create_project_team_skill.md");
+    let skill_path = skill_dir.join("SKILL.md");
+    fs::write(&skill_path, skill_content)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    log::info!("SKILL.md created at: {:?}", skill_path);
+
+    // 3. Find Claude binary and invoke the skill
+    let claude_path = crate::claude_binary::find_claude_binary(app)?;
+
+    // Build the skill invocation command
+    let skill_invocation = format!(
+        "/create-project-team \"{}\" \"{}\" {}",
+        project_name, project_description, workspace_path
+    );
+
+    // Execute Claude Code with the skill invocation
+    let mut cmd = std::process::Command::new(&claude_path);
+    cmd.arg("--print")
+        .arg("--init")
+        .arg("--dangerously-skip-permissions")
+        .arg(&skill_invocation)
+        .current_dir(&workspace_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    log::info!("Executing Claude Code...");
+    log::debug!("Claude command: claude --print --init --dangerously-skip-permissions {}", skill_invocation);
+    log::info!("Working directory: {}", workspace_path);
+
+    let output = cmd.output()
+        .map_err(|e| format!("Failed to execute Claude Code: {}", e))?;
+
+    log::info!("Claude Code process finished, exit code: {:?}", output.status.code());
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::error!("Claude Code execution failed with non-zero exit code");
+        log::error!("stderr: {}", stderr);
+        return Err(format!("Skill execution failed: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    log::info!("Claude Code output length: {} chars", stdout.len());
+    log::debug!("Claude Code output preview: {}", &stdout[..stdout.len().min(500)]);
+
+    // 4. Parse the config.json from output
+    log::info!("Parsing JSON from Claude output...");
+    let members = parse_team_members_from_output(&stdout)?;
+    log::info!("Successfully parsed {} team members", members.len());
+
+    Ok(members)
+}
+
+/// Parse team members from skill output
+fn parse_team_members_from_output(output: &str) -> Result<Vec<TeamMember>, String> {
+    log::debug!("Searching for JSON in output...");
+
+    // Try to find JSON in the output
+    let json_str = find_json_in_output(output)
+        .ok_or("Could not find JSON in skill output")?;
+
+    log::debug!("Found JSON, length: {} chars", json_str.len());
+
+    // Parse the JSON
+    let parsed: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    log::debug!("JSON parsed successfully");
+
+    let members_array = parsed.get("members")
+        .and_then(|m| m.as_array())
+        .ok_or("No members array in JSON")?;
+
+    log::debug!("Found {} members in JSON", members_array.len());
+
+    let mut members = Vec::new();
+    for m in members_array {
+        let agent_id = m.get("agentId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let name = m.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let agent_type = m.get("agentType")
+            .and_then(|v| v.as_str())
+            .unwrap_or("general-purpose")
+            .to_string();
+        let model = m.get("model")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let prompt = m.get("prompt")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let color = m.get("color")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let cwd = m.get("cwd")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        members.push(TeamMember {
+            agent_id,
+            name,
+            agent_type,
+            model,
+            prompt,
+            color,
+            cwd,
+        });
+    }
+
+    Ok(members)
+}
+
+/// Find JSON object in output string
+fn find_json_in_output(output: &str) -> Option<&str> {
+    // Find the first { and last }
+    let start = output.find('{')?;
+    let end = output.rfind('}')?;
+    if end > start {
+        Some(&output[start..=end])
+    } else {
+        None
+    }
 }

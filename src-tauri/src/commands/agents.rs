@@ -271,6 +271,8 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
     let _ = conn.execute("ALTER TABLE agents ADD COLUMN project_id TEXT", []);
     let _ = conn.execute("ALTER TABLE agents ADD COLUMN settings TEXT", []);
     let _ = conn.execute("ALTER TABLE projects ADD COLUMN project_code TEXT", []);
+    let _ = conn.execute("ALTER TABLE projects ADD COLUMN prompt TEXT", []);
+    let _ = conn.execute("ALTER TABLE projects ADD COLUMN initializing INTEGER DEFAULT 1", []);
 
     // Create agent_runs table
     conn.execute(
@@ -376,6 +378,8 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
             name TEXT NOT NULL,
             project_code TEXT,
             working_dir TEXT,
+            prompt TEXT,
+            initializing INTEGER NOT NULL DEFAULT 1,
             remote_project_id TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

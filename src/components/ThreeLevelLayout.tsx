@@ -4,7 +4,7 @@ import {
   FolderOpen, FileText, Users, BarChart, MessageSquare, Settings,
   Search, Plus, MoreVertical, UserPlus, Smile, Scissors,
   Image, FileVideo, ListTodo, FolderPlus, MoreHorizontal,
-  Zap, BookOpen
+  Zap, BookOpen, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -18,6 +18,7 @@ interface ProjectInfo {
   project_name: string;
   workspace_id: string;
   workspace_path: string;
+  initializing?: boolean;
 }
 
 // 成员类型
@@ -46,9 +47,11 @@ const globalNavItems: NavItem[] = [
 
 interface ThreeLevelLayoutProps {
   className?: string;
-  onAddClick?: (project: { name: string; description: string; workDir: string }) => void;
+  onAddClick?: (project: { name: string; projectCode?: string; description: string; workDir: string }) => void;
   projects?: ProjectInfo[];
   members?: Member[];
+  isCreatingProject?: boolean;
+  onCreatingProjectChange?: (isCreating: boolean) => void;
 }
 
 export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
@@ -56,6 +59,8 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   onAddClick,
   projects = [],
   members = [],
+  isCreatingProject = false,
+  onCreatingProjectChange,
 }) => {
   const [selectedNav, setSelectedNav] = useState<string>('projects');
   const [selectedProject, setSelectedProject] = useState<ProjectInfo | null>(null);
@@ -149,17 +154,24 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             {filteredProjects.map((project) => (
               <motion.div
                 key={project.project_id}
-                whileHover={{ scale: 1.01 }}
-                onClick={() => setSelectedProject(project)}
+                whileHover={project.initializing ? {} : { scale: 1.01 }}
+                onClick={() => {
+                  if (!project.initializing) {
+                    setSelectedProject(project);
+                  }
+                }}
                 className={cn(
-                  "p-2 rounded-lg cursor-pointer transition-all relative overflow-hidden",
-                  selectedProject?.project_id === project.project_id
+                  "p-2 rounded-lg transition-all relative overflow-hidden",
+                  project.initializing
+                    ? "cursor-not-allowed opacity-50"
+                    : "cursor-pointer hover:bg-white/50",
+                  selectedProject?.project_id === project.project_id && !project.initializing
                     ? "bg-purple-100/80"
-                    : "hover:bg-white/50"
+                    : ""
                 )}
               >
                 {/* 选中高亮背景 */}
-                {selectedProject?.project_id === project.project_id && (
+                {selectedProject?.project_id === project.project_id && !project.initializing && (
                   <div className="absolute inset-0 bg-purple-500/10" />
                 )}
 
@@ -172,6 +184,10 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                     <div className="font-medium text-sm truncate">{project.project_name}</div>
                     <div className="text-xs text-gray-400 truncate">{project.workspace_path}</div>
                   </div>
+                  {/* Loading 图标 */}
+                  {project.initializing && (
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -336,6 +352,8 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
         isOpen={showCreateDialog}
         onClose={() => setShowCreateDialog(false)}
         onConfirm={handleCreateProject}
+        isLoading={isCreatingProject}
+        onLoadingChange={onCreatingProjectChange}
       />
       <div className={cn("flex h-full", className)}>
         {/* 第一栏：全局导航 */}
