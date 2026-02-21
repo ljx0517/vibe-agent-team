@@ -1,0 +1,18 @@
+[package]
+name = "git-tools"
+version = "0.1.0"
+edition = "2024"
+description = "Git operations library - CLI + libgit2 hybrid"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+git2 = "0.20"
+chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3.21"
+thiserror = "1.0"
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+dirs = "5.0"
+which = "6.0"

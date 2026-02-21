@@ -1,0 +1,18 @@
+[package]
+name = "workspace"
+version = "0.1.0"
+edition = "2024"
+description = "Workspace management module for Git worktrees and multi-repository workspaces"
+license = "MIT"
+repository = "https://github.com/anthropics/vibe-kanban"
+
+[dependencies]
+dunce = "1"
+git2 = "0.20"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
