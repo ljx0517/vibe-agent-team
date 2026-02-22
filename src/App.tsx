@@ -55,6 +55,7 @@ interface DbProject {
   project_id: string;
   project_name: string;
   project_code?: string;
+  description?: string;
   workspace_id: string;
   workspace_path: string;
   initializing?: boolean;
@@ -466,21 +467,43 @@ function AppContent() {
             onAddClick={async (project) => {
               console.log("新建项目:", project);
               try {
+                // 先在列表中添加占位项目（用于接收实时进度事件）
+                const tempProjectId = `temp-${Date.now()}`;
+                const placeholderProject: DbProject = {
+                  project_id: tempProjectId,
+                  project_name: project.name,
+                  workspace_id: '',
+                  workspace_path: project.workDir,
+                  initializing: true,
+                  progress: { step: 'starting', message: '启动后台任务...' }
+                };
+                setDbProjects(prev => [placeholderProject, ...prev]);
+
                 const result = await invoke<{ project_id: string; workspace_id: string }>(
                   "storage_create_project",
                   {
                     input: {
                       name: project.name,
-                      project_code: project.projectCode,
+                      project_code: undefined, // 暂时隐藏项目代码字段
                       description: project.description,
                       work_dir: project.workDir,
                     },
                   }
                 );
                 console.log("项目创建成功:", result);
-                // 刷新项目列表
+
+                // 用实际项目替换占位项目
                 const updatedProjects = await invoke<DbProject[]>("storage_list_projects");
-                setDbProjects(updatedProjects);
+                // 找到刚创建的项目（最新的）
+                const newProject = updatedProjects.find(p => p.project_id === result.project_id);
+                if (newProject) {
+                  setDbProjects(prev => [
+                    newProject,
+                    ...prev.filter(p => p.project_id !== tempProjectId)
+                  ]);
+                } else {
+                  setDbProjects(updatedProjects);
+                }
 
                 // 项目创建完成，关闭 loading 状态
                 setIsCreatingProject(false);

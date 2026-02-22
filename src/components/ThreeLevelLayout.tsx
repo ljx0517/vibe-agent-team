@@ -200,9 +200,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                           <div
                             className="h-full bg-blue-500 transition-all duration-300"
                             style={{
-                              width: project.progress.step === 'starting' ? '10%' :
-                                     project.progress.step === 'executing_claude' ? '50%' :
-                                     project.progress.step === 'parsing_json' ? '80%' :
+                              width: project.progress.step === 'starting' ? '5%' :
+                                     project.progress.step === 'preparing' ? '10%' :
+                                     project.progress.step === 'writing_skill' ? '15%' :
+                                     project.progress.step === 'finding_claude' ? '20%' :
+                                     project.progress.step === 'executing_claude' ? '40%' :
+                                     project.progress.step === 'parsing_json' ? '60%' :
+                                     project.progress.step === 'saving_agents' ? '80%' :
                                      project.progress.step === 'completed' ? '100%' : '30%'
                             }}
                           />

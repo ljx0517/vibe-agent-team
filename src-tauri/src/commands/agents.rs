@@ -266,6 +266,7 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
         [],
     );
     let _ = conn.execute("ALTER TABLE agents ADD COLUMN hooks TEXT", []);
+    let _ = conn.execute("ALTER TABLE agents ADD COLUMN role_type TEXT DEFAULT 'teammate'", []);
     let _ = conn.execute(
         "ALTER TABLE agents ADD COLUMN enable_file_read BOOLEAN DEFAULT 1",
         [],
@@ -383,6 +384,7 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             project_code TEXT,
+            description TEXT,
             working_dir TEXT,
             prompt TEXT,
             initializing INTEGER NOT NULL DEFAULT 1,
@@ -435,6 +437,7 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             agent_id TEXT NOT NULL,
+            project_agent_id TEXT NOT NULL,
             target_branch TEXT NOT NULL DEFAULT 'main',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -443,6 +446,9 @@ pub fn init_database(app: &AppHandle) -> SqliteResult<Connection> {
         )",
         [],
     )?;
+
+    // Add column if not exists
+    let _ = conn.execute("ALTER TABLE project_agents ADD COLUMN project_agent_id TEXT NOT NULL DEFAULT ''", []);
 
     Ok(conn)
 }

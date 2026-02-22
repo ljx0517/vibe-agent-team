@@ -85,7 +85,7 @@ disable-model-invocation: true
 
 ### 3. 生成 Team Lead Prompt
 
-为 Team Lead 角色生成 prompt： 角色是Team Lead，能力包含必须是是Software Architect ，并且devil's advocate， 还有丰富的产品思维，和经验
+为 Team Lead 角色生成适合project-name, {project-description}的 prompt： 角色是Team Lead，能力包含必须是是Software Architect ，并且devil's advocate， 还有丰富的产品思维，和经验
 ** 备注 ** : 如果是女性角色，偏产品一些，如果是男性角色偏技术一些
 
 
@@ -138,6 +138,7 @@ config.json 内容：
       "nickname": "{{leader_zh_name}}",
       "gender":"{{leader_gender}}",
       "agentType": "general-purpose",
+      "color": "{{random_color}}",
       "model": "",
       "prompt": "{{lead_prompt}}",
       "joinedAt": {{current_timestamp}},

@@ -649,9 +649,9 @@ pub async fn storage_create_project(
 
         // Insert into projects table (initializing = 1 means "initializing")
         conn.execute(
-            "INSERT INTO projects (id, name, project_code, working_dir, prompt, initializing, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 1, datetime('now'), datetime('now'))",
-            params![project_id, input.name, input.project_code, input.work_dir, input.prompt],
+            "INSERT INTO projects (id, name, project_code, description, working_dir, prompt, initializing, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, datetime('now'), datetime('now'))",
+            params![project_id, input.name, input.project_code, input.description, input.work_dir, input.prompt],
         )
         .map_err(|e| format!("创建项目失败: {}", e))?;
 
@@ -671,12 +671,19 @@ pub async fn storage_create_project(
     // Spawn background task to execute project team skill
     log::info!("Starting background task for project team skill...");
 
-    // Emit initial progress: starting background task
-    let _ = app.emit("project-progress", serde_json::json!({
-        "project_id": project_id,
-        "step": "starting",
-        "message": "启动后台任务..."
-    }));
+    // Emit initial progress AFTER returning to frontend (so frontend has the project in list)
+    // Use tokio::spawn to defer the event until after this function returns
+    let app_for_deferred = app.clone();
+    let project_id_for_deferred = project_id.clone();
+    tokio::spawn(async move {
+        // Small delay to ensure frontend has updated its project list
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let _ = app_for_deferred.emit("project-progress", serde_json::json!({
+            "project_id": project_id_for_deferred,
+            "step": "starting",
+            "message": "启动后台任务..."
+        }));
+    });
 
     let app_clone = app.clone();
     let project_description = input.description.clone();
@@ -687,6 +694,7 @@ pub async fn storage_create_project(
     // Execute skill synchronously to get members for response
     let members = match execute_project_team_skill(
         &app,
+        project_id_clone.clone(),
         project_name.clone(),
         project_description.clone(),
         project_path.clone(),
@@ -713,8 +721,17 @@ pub async fn storage_create_project(
         }));
 
         // Save members to agents table (members already fetched synchronously above)
+        let total_members = members.len();
         match init_database(&app_clone) {
             Ok(conn) => {
+                // Emit progress: saving agents
+                let _ = app_clone.emit("project-progress", serde_json::json!({
+                    "project_id": project_id_clone,
+                    "step": "saving_agents",
+                    "message": format!("正在保存团队成员 ({}/{})...", 0, total_members)
+                }));
+
+                let mut saved_count = 0;
                 for member in members {
                     let agent_id = Uuid::new_v4().to_string();
                     let color = member.color.clone();
@@ -724,20 +741,43 @@ pub async fn storage_create_project(
                     let agent_type = member.agent_type.clone();
                     let system_prompt = member.prompt.clone().unwrap_or_default();
                     let model = member.model.clone().unwrap_or_else(|| "sonnet".to_string());
+                    let role_type = member.role_type.clone();
+                    let project_agent_id = member.agent_id.clone(); // 保存 agentId 字段
 
                     match conn.execute(
-                        "INSERT INTO agents (id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, model, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'), datetime('now'))",
-                        params![agent_id, project_id_clone, member.name, icon, color, nickname, gender, agent_type, system_prompt, model],
+                        "INSERT INTO agents (id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now'), datetime('now'))",
+                        params![agent_id, project_id_clone, member.name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type],
                     ) {
                         Ok(_) => {
+                            // Also insert into project_agents table
+                            let project_agent_uuid = Uuid::new_v4().to_string();
+                            if let Err(e) = conn.execute(
+                                "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
+                                 VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+                                params![project_agent_uuid, project_id_clone, agent_id, project_agent_id],
+                            ) {
+                                log::error!("Failed to create project_agent {}: {}", project_agent_id, e);
+                            } else {
+                                log::info!("Created project_agent: {} -> agent: {}", project_agent_id, agent_id);
+                            }
+
+                            saved_count += 1;
                             log::info!("Created agent: {} for project {}", member.name, project_id_clone);
+                            // Emit progress for each saved agent
+                            let _ = app_clone.emit("project-progress", serde_json::json!({
+                                "project_id": project_id_clone,
+                                "step": "saving_agents",
+                                "message": format!("正在保存团队成员 ({}/{})...", saved_count, total_members)
+                            }));
                         }
                         Err(e) => {
                             log::error!("Failed to create agent {}: {}", member.name, e);
                         }
                     }
                 }
+
+                log::info!("Saved {}/{} team members", saved_count, total_members);
 
                 // Mark project as initialized
                 if let Err(e) = conn.execute(
@@ -800,6 +840,7 @@ pub struct ProjectWithWorkspace {
     pub project_id: String,
     pub project_name: String,
     pub project_code: Option<String>,
+    pub description: Option<String>,
     pub workspace_id: String,
     pub workspace_path: String,
     pub initializing: bool,
@@ -814,7 +855,7 @@ pub async fn storage_list_projects(
 
     let mut stmt = conn
         .prepare(
-            "SELECT p.id, p.name, p.project_code, w.id, w.path, COALESCE(p.initializing, 0) as initializing
+            "SELECT p.id, p.name, p.project_code, p.description, w.id, w.path, COALESCE(p.initializing, 0) as initializing
              FROM projects p
              LEFT JOIN workspaces w ON w.name = p.name
              ORDER BY p.created_at DESC",
@@ -827,9 +868,10 @@ pub async fn storage_list_projects(
                 project_id: row.get(0)?,
                 project_name: row.get(1)?,
                 project_code: row.get(2)?,
-                workspace_id: row.get(3)?,
-                workspace_path: row.get(4)?,
-                initializing: row.get::<_, i32>(5)? != 0,
+                description: row.get(3)?,
+                workspace_id: row.get(4)?,
+                workspace_path: row.get(5)?,
+                initializing: row.get::<_, i32>(6)? != 0,
             })
         })
         .map_err(|e| e.to_string())?
@@ -921,11 +963,13 @@ pub struct TeamMember {
     pub prompt: Option<String>,
     pub color: Option<String>,
     pub cwd: Option<String>,
+    pub role_type: String, // "teamlead" or "teammate"
 }
 
 /// Execute project team skill and parse members from output
 pub async fn execute_project_team_skill(
     app: &AppHandle,
+    project_id: String,
     project_name: String,
     project_description: String,
     workspace_path: String,
@@ -934,6 +978,13 @@ pub async fn execute_project_team_skill(
     use std::fs;
 
     log::info!("Executing project team skill for: {}", project_name);
+
+    // Emit progress: preparing
+    let _ = app.emit("project-progress", serde_json::json!({
+        "project_id": project_id,
+        "step": "preparing",
+        "message": "准备环境..."
+    }));
 
     // 1. Create skill directory
     let skill_dir = Path::new(&workspace_path)
@@ -944,6 +995,13 @@ pub async fn execute_project_team_skill(
     fs::create_dir_all(&skill_dir)
         .map_err(|e| format!("Failed to create skill directory: {}", e))?;
 
+    // Emit progress: writing skill file
+    let _ = app.emit("project-progress", serde_json::json!({
+        "project_id": project_id,
+        "step": "writing_skill",
+        "message": "写入 Skill 文件..."
+    }));
+
     // 2. Write SKILL.md file (same as create_project_team_skill)
     let skill_content = include_str!("templates/create_project_team_skill.md");
     let skill_path = skill_dir.join("SKILL.md");
@@ -951,6 +1009,13 @@ pub async fn execute_project_team_skill(
         .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
 
     log::info!("SKILL.md created at: {:?}", skill_path);
+
+    // Emit progress: finding claude
+    let _ = app.emit("project-progress", serde_json::json!({
+        "project_id": project_id,
+        "step": "finding_claude",
+        "message": "查找 Claude..."
+    }));
 
     // 3. Find Claude binary and invoke the skill
     let claude_path = crate::claude_binary::find_claude_binary(app)?;
@@ -976,8 +1041,56 @@ pub async fn execute_project_team_skill(
     log::debug!("Claude command: claude --print --init --dangerously-skip-permissions {}", skill_invocation);
     log::info!("Working directory: {}", workspace_path);
 
+    // Emit initial progress: executing_claude (40%)
+    let app_for_progress = app.clone();
+    let project_id_for_progress = project_id.clone();
+    let _ = app_for_progress.emit("project-progress", serde_json::json!({
+        "project_id": project_id_for_progress,
+        "step": "executing_claude",
+        "message": "正在调用 Claude Code... (40%)"
+    }));
+
+    // Spawn background task to send random progress updates while Claude is executing
+    // This runs in a separate thread to simulate progress during Claude execution
+    let app_for_random_progress = app.clone();
+    let project_id_for_random = project_id.clone();
+    let handle = std::thread::spawn(move || {
+        use std::time::{Duration, Instant};
+        use rand::Rng;
+
+        let mut rng = rand::thread_rng();
+        let start_time = Instant::now();
+
+        // Random number of progress updates: 5-10
+        let num_updates = rng.gen_range(5..=10);
+        log::info!("[Random Progress] Will send {} progress updates", num_updates);
+
+        for i in 1..=num_updates {
+            // Wait for random duration (0.5s - 2s) between updates
+            let wait_time = Duration::from_millis(rng.gen_range(500..2000));
+            std::thread::sleep(wait_time);
+
+            // Calculate progress: 40% -> 90%
+            let progress = 40 + (i as f64 / num_updates as f64 * 50.0) as u32;
+            let message = format!("正在调用 Claude Code... ({}%)", progress);
+
+            let _ = app_for_random_progress.emit("project-progress", serde_json::json!({
+                "project_id": project_id_for_random,
+                "step": "executing_claude",
+                "message": message
+            }));
+
+            log::info!("[Random Progress] Sent progress update {}/{}: {}%", i, num_updates, progress);
+        }
+
+        log::info!("[Random Progress] Completed all {} progress updates", num_updates);
+    });
+
     let output = cmd.output()
         .map_err(|e| format!("Failed to execute Claude Code: {}", e))?;
+
+    // Wait for random progress thread to finish
+    let _ = handle.join();
 
     log::info!("Claude Code process finished, exit code: {:?}", output.status.code());
 
@@ -994,7 +1107,7 @@ pub async fn execute_project_team_skill(
 
     // Emit progress: parsing json
     let _ = app.emit("project-progress", serde_json::json!({
-        "project_id": "",
+        "project_id": project_id,
         "step": "parsing_json",
         "message": "正在解析 JSON..."
     }));
@@ -1023,6 +1136,13 @@ fn parse_team_members_from_output(output: &str) -> Result<Vec<TeamMember>, Strin
 
     log::debug!("JSON parsed successfully");
 
+    // Get leadAgentId to determine role_type
+    let lead_agent_id = parsed.get("leadAgentId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    log::debug!("Lead agent ID: {}", lead_agent_id);
+
     let members_array = parsed.get("members")
         .and_then(|m| m.as_array())
         .ok_or("No members array in JSON")?;
@@ -1031,6 +1151,17 @@ fn parse_team_members_from_output(output: &str) -> Result<Vec<TeamMember>, Strin
 
     let mut members = Vec::new();
     for m in members_array {
+        let agent_id = m.get("agentId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Determine role_type: teamlead if agentId == leadAgentId, else teammate
+        let role_type = if agent_id == lead_agent_id {
+            "teamlead"
+        } else {
+            "teammate"
+        };
         let agent_id = m.get("agentId")
             .and_then(|v| v.as_str())
             .unwrap_or("")
@@ -1072,6 +1203,7 @@ fn parse_team_members_from_output(output: &str) -> Result<Vec<TeamMember>, Strin
             prompt,
             color,
             cwd,
+            role_type: role_type.to_string(),
         });
     }
 

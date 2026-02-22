@@ -162,8 +162,8 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
             )}
           </div>
 
-          {/* 项目代码 */}
-          <div className="grid gap-2">
+          {/* 项目代码 - 暂时隐藏 */}
+          {/* <div className="grid gap-2">
             <Label htmlFor="project-code">项目代码</Label>
             <Input
               id="project-code"
@@ -171,7 +171,7 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
               value={projectCode}
               onChange={(e) => setProjectCode(e.target.value)}
             />
-          </div>
+          </div> */}
 
           {/* 项目描述 */}
           <div className="grid gap-2">
