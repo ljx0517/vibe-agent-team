@@ -141,6 +141,7 @@ config.json 内容：
       "agentType": "general-purpose",
       "color": "{{random_color}}",
       "model": "",
+      "role_type": "teamlead",  // 固定值
       "prompt": "{{lead_prompt}}",
       "joinedAt": {{current_timestamp}},
       "tmuxPaneId": "",

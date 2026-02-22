@@ -707,37 +707,36 @@ pub async fn storage_create_project(
     let existing_teamlead = input.teamlead.clone();
     let existing_teamlead_id = existing_teamlead.as_ref().map(|t| t.id.clone());
 
-    // Execute skill synchronously to get members for response (非常耗时)
-    let members = match execute_project_team_skill(
-        &app,
-        project_id_clone.clone(),
-        project_name.clone(),
-        project_description.clone(),
-        project_path.clone(),
-        existing_teamlead.clone(),
-    ).await {
-        Ok(m) => m,
-        Err(e) => {
-            log::error!("Failed to execute project team skill: {}", e);
-            Vec::new()
-        }
-    };
-
-    let members_for_response = members.clone();
-
+    // Execute skill in background task (non-blocking)
     tokio::spawn(async move {
         log::info!("[Background Task] Starting project team skill for project: {}", project_name);
         log::info!("[Background Task] Project ID: {}", project_id_clone);
         log::info!("[Background Task] Working directory: {}", project_path);
 
-        // Emit progress: executing claude
+        // Execute the skill (this is the耗时操作)
+        let members = match execute_project_team_skill(
+            &app_clone,
+            project_id_clone.clone(),
+            project_name.clone(),
+            project_description.clone(),
+            project_path.clone(),
+            existing_teamlead.clone(),
+        ).await {
+            Ok(m) => m,
+            Err(e) => {
+                log::error!("Failed to execute project team skill: {}", e);
+                Vec::new()
+            }
+        };
+
+        // Emit progress: executing claude completed
         let _ = app_clone.emit("project-progress", serde_json::json!({
             "project_id": project_id_clone,
             "step": "executing_claude",
-            "message": "正在调用 Claude Code..."
+            "message": "调用 Claude Code 完成，正在保存团队成员..."
         }));
 
-        // Save members to agents table (members already fetched synchronously above)
+        // Save members to agents table
         let total_members = members.len();
         match init_database(&app_clone) {
             Ok(conn) => {
@@ -801,6 +800,23 @@ pub async fn storage_create_project(
 
                 log::info!("Saved {}/{} team members", saved_count, total_members);
 
+                // If existing_teamlead is provided, link it to the new project (project_agents only)
+                if let Some(ref teamlead) = existing_teamlead {
+                    log::info!("Linking existing teamlead to project: {}", teamlead.name);
+
+                    // Only insert into project_agents table (agent already exists in agents table)
+                    let project_agent_uuid = Uuid::new_v4().to_string();
+                    if let Err(e) = conn.execute(
+                        "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+                        params![project_agent_uuid, project_id_clone, teamlead.id, teamlead.project_agent_id],
+                    ) {
+                        log::error!("Failed to link existing teamlead to project_agents: {}", e);
+                    } else {
+                        log::info!("Existing teamlead linked to project via project_agents table");
+                    }
+                }
+
                 // Mark project as initialized
                 if let Err(e) = conn.execute(
                             "UPDATE projects SET initializing = 0, updated_at = datetime('now') WHERE id = ?1",
@@ -827,13 +843,14 @@ pub async fn storage_create_project(
     });
 
     log::info!("========== Project creation request completed ==========");
-    log::info!("Returning to frontend. Project will show as 'initializing' until background task completes.");
+    log::info!("Returning to frontend immediately. Background task will complete asynchronously.");
     log::info!("Project ID: {}, Workspace ID: {}", project_id, workspace_id);
 
+    // Return immediately with empty members - frontend will receive updates via events
     Ok(CreateProjectResult {
         project_id: project_id.clone(),
         workspace_id,
-        members: members_for_response,
+        members: Vec::new(), // Members will be populated by background task and sent via events
     })
 }
 
@@ -1222,6 +1239,14 @@ pub async fn execute_project_team_skill(
                 log::warn!("Config.json not found at: {:?}", config_path);
             }
         }
+    }
+
+    // 7. If existing_teamlead is provided, filter out the teamlead from members
+    // (the existing teamlead will be reused, no need to create a new one)
+    if existing_teamlead.is_some() {
+        let original_count = members.len();
+        members.retain(|m| m.role_type != "teamlead");
+        log::info!("Filtered out teamlead member: {} -> {} members", original_count, members.len());
     }
 
     Ok(members)
