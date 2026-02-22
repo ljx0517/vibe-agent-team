@@ -105,7 +105,6 @@ pub async fn start_teammate_agent(
     // Build agents JSON config for --agents flag
     let agents_json = serde_json::json!({
         &agent_id: {
-            "description": agent.description.clone().unwrap_or_default(),
             "prompt": agent.system_prompt,
             "tools": agent.tools.as_ref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).unwrap_or_default(),
             "model": execution_model.clone()

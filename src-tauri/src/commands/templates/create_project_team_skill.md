@@ -131,6 +131,7 @@ config.json 内容：
   "createdAt": {{current_timestamp}},
   "leadAgentId": "{{leader_en_name}}@{{project_name}}",
   "leadSessionId": "{{uuid}}",
+  "configPath": "{{config_json_file_path}}",
   "members": [
     {
       "agentId": "{{leader_en_name}}@{{project_name}}",

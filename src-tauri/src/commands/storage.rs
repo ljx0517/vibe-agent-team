@@ -608,6 +608,19 @@ pub async fn create_workspace_marker(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Selected teamlead info when creating a project
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SelectedTeamlead {
+    pub id: String,           // agent id
+    pub project_agent_id: String, // project_agent_id from project_agents table
+    pub name: String,
+    pub nickname: Option<String>,
+    pub gender: Option<String>,
+    pub prompt: String,
+    pub model: Option<String>,
+    pub color: Option<String>,
+}
+
 /// Project creation input
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectInput {
@@ -616,6 +629,7 @@ pub struct CreateProjectInput {
     pub description: String,
     pub work_dir: String,
     pub prompt: Option<String>,
+    pub teamlead: Option<SelectedTeamlead>, // If provided, use existing teamlead instead of creating new one
 }
 
 /// Project creation result
@@ -690,14 +704,17 @@ pub async fn storage_create_project(
     let project_path = input.work_dir.clone();
     let project_name = input.name.clone();
     let project_id_clone = project_id.clone();
+    let existing_teamlead = input.teamlead.clone();
+    let existing_teamlead_id = existing_teamlead.as_ref().map(|t| t.id.clone());
 
-    // Execute skill synchronously to get members for response
+    // Execute skill synchronously to get members for response (非常耗时)
     let members = match execute_project_team_skill(
         &app,
         project_id_clone.clone(),
         project_name.clone(),
         project_description.clone(),
         project_path.clone(),
+        existing_teamlead.clone(),
     ).await {
         Ok(m) => m,
         Err(e) => {
@@ -733,7 +750,12 @@ pub async fn storage_create_project(
 
                 let mut saved_count = 0;
                 for member in members {
-                    let agent_id = Uuid::new_v4().to_string();
+                    // If this is a teamlead and we have an existing teamlead, use the existing agent_id
+                    let agent_id = if member.role_type == "teamlead" && existing_teamlead_id.is_some() {
+                        existing_teamlead_id.clone().unwrap()
+                    } else {
+                        Uuid::new_v4().to_string()
+                    };
                     let color = member.color.clone();
                     let icon = color.clone().unwrap_or_else(|| "🤖".to_string());
                     let nickname = member.nickname.clone();
@@ -973,6 +995,7 @@ pub async fn execute_project_team_skill(
     project_name: String,
     project_description: String,
     workspace_path: String,
+    existing_teamlead: Option<SelectedTeamlead>,
 ) -> Result<Vec<TeamMember>, String> {
     use std::path::Path;
     use std::fs;
@@ -1051,15 +1074,14 @@ pub async fn execute_project_team_skill(
     }));
 
     // Spawn background task to send random progress updates while Claude is executing
-    // This runs in a separate thread to simulate progress during Claude execution
+    // Use tokio::task::spawn_blocking for better compatibility with async context
     let app_for_random_progress = app.clone();
     let project_id_for_random = project_id.clone();
-    let handle = std::thread::spawn(move || {
-        use std::time::{Duration, Instant};
+    let handle = tokio::task::spawn_blocking(move || {
+        use std::time::Duration;
         use rand::Rng;
 
         let mut rng = rand::thread_rng();
-        let start_time = Instant::now();
 
         // Random number of progress updates: 5-10
         let num_updates = rng.gen_range(5..=10);
@@ -1074,6 +1096,7 @@ pub async fn execute_project_team_skill(
             let progress = 40 + (i as f64 / num_updates as f64 * 50.0) as u32;
             let message = format!("正在调用 Claude Code... ({}%)", progress);
 
+            log::info!("[Random Progress] Emitting event with project_id: {}", project_id_for_random);
             let _ = app_for_random_progress.emit("project-progress", serde_json::json!({
                 "project_id": project_id_for_random,
                 "step": "executing_claude",
@@ -1089,8 +1112,8 @@ pub async fn execute_project_team_skill(
     let output = cmd.output()
         .map_err(|e| format!("Failed to execute Claude Code: {}", e))?;
 
-    // Wait for random progress thread to finish
-    let _ = handle.join();
+    // Wait for random progress task to finish
+    let _ = handle.await;
 
     log::info!("Claude Code process finished, exit code: {:?}", output.status.code());
 
@@ -1114,8 +1137,92 @@ pub async fn execute_project_team_skill(
 
     // 4. Parse the config.json from output
     log::info!("Parsing JSON from Claude output...");
-    let members = parse_team_members_from_output(&stdout)?;
+    let mut members = parse_team_members_from_output(&stdout)?;
     log::info!("Successfully parsed {} team members", members.len());
+
+    // 5. If existing_teamlead is provided, replace lead agent's name, nickname, gender
+    if let Some(ref teamlead) = existing_teamlead {
+        log::info!("Replacing lead agent with existing teamlead: {}", teamlead.name);
+        for member in members.iter_mut() {
+            if member.role_type == "teamlead" {
+                member.name = teamlead.name.clone();
+                member.nickname = teamlead.nickname.clone();
+                member.gender = teamlead.gender.clone();
+                // Also update agent_id to match the existing teamlead
+                member.agent_id = format!("{}@{}", teamlead.name, project_name);
+                log::info!("Lead agent replaced: name={}, nickname={}, gender={}",
+                    member.name, member.nickname.as_deref().unwrap_or(""), member.gender.as_deref().unwrap_or(""));
+                break;
+            }
+        }
+
+        // 6. Update config.json file with replaced teamlead info
+        // Extract configPath from stdout
+        let config_path = find_json_in_output(&stdout)
+            .and_then(|json_str| {
+                serde_json::from_str::<serde_json::Value>(json_str)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("configPath")
+                            .and_then(|p| p.as_str())
+                            .map(|s| s.to_string())
+                    })
+            });
+
+        if let Some(config_path_str) = config_path {
+            let config_path = std::path::Path::new(&config_path_str);
+
+            if config_path.exists() {
+                log::info!("Updating config.json at: {:?}", config_path);
+
+                // Re-read the existing config.json
+                if let Ok(config_content) = fs::read_to_string(&config_path) {
+                    if let Ok(mut config_json) = serde_json::from_str::<serde_json::Value>(&config_content) {
+                        // Update leadAgentId
+                        if let Some(lead_member) = members.iter().find(|m| m.role_type == "teamlead") {
+                            if let Some(obj) = config_json.get_mut("leadAgentId") {
+                                *obj = serde_json::Value::String(lead_member.agent_id.clone());
+                            }
+
+                            // Update members array
+                            if let Some(members_arr) = config_json.get_mut("members").and_then(|m| m.as_array_mut()) {
+                                for m in members_arr {
+                                    if let Some(agent_id) = m.get("agentId").and_then(|v| v.as_str()) {
+                                        if agent_id.contains(&project_name) || agent_id.contains("lead") {
+                                            if let Some(obj) = m.as_object_mut() {
+                                                obj.insert("agentId".to_string(), serde_json::Value::String(lead_member.agent_id.clone()));
+                                                obj.insert("name".to_string(), serde_json::Value::String(lead_member.name.clone()));
+                                                if let Some(nickname) = &lead_member.nickname {
+                                                    obj.insert("nickname".to_string(), serde_json::Value::String(nickname.clone()));
+                                                }
+                                                if let Some(gender) = &lead_member.gender {
+                                                    obj.insert("gender".to_string(), serde_json::Value::String(gender.clone()));
+                                                }
+                                                if let Some(prompt) = &lead_member.prompt {
+                                                    obj.insert("prompt".to_string(), serde_json::Value::String(prompt.clone()));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Write updated config.json
+                            if let Ok(updated_content) = serde_json::to_string_pretty(&config_json) {
+                                if let Err(e) = fs::write(&config_path, updated_content) {
+                                    log::error!("Failed to write config.json: {}", e);
+                                } else {
+                                    log::info!("Successfully updated config.json with replaced teamlead info");
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                log::warn!("Config.json not found at: {:?}", config_path);
+            }
+        }
+    }
 
     Ok(members)
 }

@@ -695,6 +695,19 @@ export const api = {
   },
 
   /**
+   * Lists all teamlead agents
+   * @returns Promise resolving to an array of teamlead agents
+   */
+  async listTeamleads(): Promise<Agent[]> {
+    try {
+      return await apiCall<Agent[]>('list_teamleads');
+    } catch (error) {
+      console.error("Failed to list teamleads:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Creates a new agent
    * @param name - The agent name
    * @param icon - The icon identifier
@@ -712,7 +725,8 @@ export const api = {
     model?: string,
     hooks?: string,
     settings?: string,
-    project_id?: string
+    project_id?: string,
+    role_type?: string
   ): Promise<Agent> {
     try {
       return await apiCall<Agent>('create_agent', {
@@ -723,7 +737,8 @@ export const api = {
         model,
         hooks,
         settings,
-        projectId: project_id
+        projectId: project_id,
+        roleType: role_type
       });
     } catch (error) {
       console.error("Failed to create agent:", error);

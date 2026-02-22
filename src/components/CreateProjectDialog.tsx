@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Folder, AlertCircle, CheckCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +14,37 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+// Extended agent type with additional fields from backend
+interface TeamleadAgent {
+  id?: number | string;
+  project_id?: string;
+  name: string;
+  icon?: string;
+  color?: string;
+  nickname?: string;
+  gender?: string;
+  agent_type?: string;
+  description?: string;
+  system_prompt?: string;
+  default_task?: string;
+  model?: string;
+  tools?: string;
+  enable_file_read?: boolean;
+  enable_file_write?: boolean;
+  enable_network?: boolean;
+  hooks?: string;
+  settings?: string;
+  created_at?: string;
+  updated_at?: string;
+}
 
 interface DirectoryStatus {
   is_empty: boolean;
@@ -21,10 +53,20 @@ interface DirectoryStatus {
   error: string | null;
 }
 
+interface SelectedTeamlead {
+  id: string;
+  name: string;
+  nickname?: string;
+  gender?: string;
+  prompt?: string;
+  model?: string;
+  color?: string;
+}
+
 interface CreateProjectDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (project: { name: string; projectCode?: string; description: string; workDir: string }) => void;
+  onConfirm: (project: { name: string; projectCode?: string; description: string; workDir: string; teamlead?: SelectedTeamlead }) => void;
   isLoading?: boolean;
   onLoadingChange?: (isLoading: boolean) => void;
 }
@@ -43,6 +85,17 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
   const [nameError, setNameError] = useState(false);
   const [workDirError, setWorkDirError] = useState<string | null>(null);
   const [workDirStatus, setWorkDirStatus] = useState<"empty" | "workspace" | "invalid" | null>(null);
+  const [teamleads, setTeamleads] = useState<TeamleadAgent[]>([]);
+  const [selectedTeamlead, setSelectedTeamlead] = useState<string>("new");
+
+  // Load teamleads when dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      api.listTeamleads()
+        .then((data) => setTeamleads(data as unknown as TeamleadAgent[]))
+        .catch(err => console.error("Failed to load teamleads:", err));
+    }
+  }, [isOpen]);
 
   const handleOpenFolder = async () => {
     try {
@@ -102,11 +155,30 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
     }
     // 设置 loading 状态
     onLoadingChange?.(true);
+
+    // 处理 teamlead 选择
+    let teamlead: SelectedTeamlead | undefined;
+    if (selectedTeamlead !== "new") {
+      const selected = teamleads.find(t => String(t.id) === selectedTeamlead);
+      if (selected) {
+        teamlead = {
+          id: String(selected.id || ""),
+          name: selected.name,
+          nickname: selected.nickname,
+          gender: selected.gender,
+          prompt: selected.system_prompt || "",
+          model: selected.model,
+          color: selected.color,
+        };
+      }
+    }
+
     onConfirm({
       name: name.trim(),
       projectCode: projectCode.trim() || undefined,
       description: description.trim(),
       workDir: workDir.trim(),
+      teamlead,
     });
     // 重置表单（保持 loading 状态由父组件控制）
     setName("");
@@ -116,6 +188,7 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
     setNameError(false);
     setWorkDirError(null);
     setWorkDirStatus(null);
+    setSelectedTeamlead("new");
   };
 
   const handleClose = () => {
@@ -172,6 +245,24 @@ export const CreateProjectDialog: React.FC<CreateProjectDialogProps> = ({
               onChange={(e) => setProjectCode(e.target.value)}
             />
           </div> */}
+
+          {/* Team Lead 选择 */}
+          <div className="grid gap-2">
+            <Label htmlFor="teamlead">Team Lead</Label>
+            <Select value={selectedTeamlead} onValueChange={setSelectedTeamlead}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择 Team Lead" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">New Teamlead（新建）</SelectItem>
+                {teamleads.map((teamlead) => (
+                  <SelectItem key={String(teamlead.id)} value={String(teamlead.id || "")}>
+                    {teamlead.nickname || teamlead.name} ({teamlead.name})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* 项目描述 */}
           <div className="grid gap-2">

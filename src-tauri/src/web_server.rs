@@ -18,6 +18,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
 use which;
 
+use crate::commands::agents::AgentDb;
 use crate::commands;
 use crate::process;
 
@@ -67,6 +68,8 @@ pub struct AppState {
         Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::Sender<String>>>>,
     // Process registry for managing Claude processes
     pub process_registry: Arc<process::ProcessRegistry>,
+    // Database for agents (Arc-wrapped for sharing across requests)
+    pub db: Arc<AgentDb>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +210,59 @@ async fn get_sessions(
 /// Simple agents endpoint - return empty for now (needs DB state)
 async fn get_agents() -> Json<ApiResponse<Vec<serde_json::Value>>> {
     Json(ApiResponse::success(vec![]))
+}
+
+/// Teamleads endpoint - fetch teamleads from database
+async fn get_teamleads(AxumState(state): AxumState<AppState>) -> Json<ApiResponse<Vec<serde_json::Value>>> {
+    let db = state.db;
+    let conn = match db.0.lock() {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(ApiResponse::error(format!("Failed to lock database: {}", e)));
+        }
+    };
+
+    let mut stmt = match conn.prepare(
+        "SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE role_type = 'teamlead' ORDER BY created_at DESC"
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            return Json(ApiResponse::error(format!("Failed to prepare query: {}", e)));
+        }
+    };
+
+    let agents = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, Option<String>>(0)?,
+            "project_id": row.get::<_, Option<String>>(1)?,
+            "name": row.get::<_, String>(2)?,
+            "icon": row.get::<_, String>(3)?,
+            "color": row.get::<_, Option<String>>(4)?,
+            "nickname": row.get::<_, Option<String>>(5)?,
+            "gender": row.get::<_, Option<String>>(6)?,
+            "agent_type": row.get::<_, String>(7).unwrap_or_else(|_| "general-purpose".to_string()),
+            "system_prompt": row.get::<_, String>(8)?,
+            "default_task": row.get::<_, Option<String>>(9)?,
+            "model": row.get::<_, String>(10).unwrap_or_else(|_| "sonnet".to_string()),
+            "tools": row.get::<_, Option<String>>(11)?,
+            "enable_file_read": row.get::<_, bool>(12).unwrap_or(true),
+            "enable_file_write": row.get::<_, bool>(13).unwrap_or(true),
+            "enable_network": row.get::<_, bool>(14).unwrap_or(false),
+            "hooks": row.get::<_, Option<String>>(15)?,
+            "settings": row.get::<_, Option<String>>(16)?,
+            "role_type": row.get::<_, Option<String>>(17)?,
+            "created_at": row.get::<_, String>(18)?,
+            "updated_at": row.get::<_, String>(19)?,
+        }))
+    });
+
+    match agents {
+        Ok(rows) => {
+            let result: Vec<serde_json::Value> = rows.filter_map(|r| r.ok()).collect();
+            Json(ApiResponse::success(result))
+        }
+        Err(e) => Json(ApiResponse::error(format!("Query failed: {}", e))),
+    }
 }
 
 /// Simple usage endpoint - return empty for now
@@ -867,10 +923,11 @@ async fn send_to_session(state: &AppState, session_id: &str, message: String) {
 }
 
 /// Create the web server
-pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn create_web_server(port: u16, db: AgentDb) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         active_sessions: Arc::new(Mutex::new(std::collections::HashMap::new())),
         process_registry: Arc::new(process::ProcessRegistry::new()),
+        db: Arc::new(db),
     };
 
     // CORS layer to allow requests from phone browsers
@@ -888,6 +945,7 @@ pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Erro
         .route("/api/projects", get(get_projects))
         .route("/api/projects/{project_id}/sessions", get(get_sessions))
         .route("/api/agents", get(get_agents))
+        .route("/api/agents/teamleads", get(get_teamleads))
         .route("/api/usage", get(get_usage))
         // Settings and configuration
         .route("/api/settings/claude", get(get_claude_settings))
@@ -944,9 +1002,9 @@ pub async fn create_web_server(port: u16) -> Result<(), Box<dyn std::error::Erro
 }
 
 /// Start web server mode (alternative to Tauri GUI)
-pub async fn start_web_mode(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_web_mode(port: Option<u16>, db: AgentDb) -> Result<(), Box<dyn std::error::Error>> {
     let port = port.unwrap_or(8080);
 
     println!("🚀 Starting Vibe Agent Team in web server mode...");
-    create_web_server(port).await
+    create_web_server(port, db).await
 }

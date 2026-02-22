@@ -37,15 +37,17 @@ function detectEnvironment(): boolean {
 
   // Check for Tauri-specific indicators
   const isTauri = !!(
-    window.__TAURI__ || 
+    window.__TAURI__ ||
     window.__TAURI_METADATA__ ||
     window.__TAURI_INTERNALS__ ||
+    // Check for Tauri in URL protocol (tauri://)
+    (typeof window.location !== 'undefined' && window.location.protocol === 'tauri:') ||
     // Check user agent for Tauri
     navigator.userAgent.includes('Tauri')
   );
 
-  console.log('[detectEnvironment] isTauri:', isTauri, 'userAgent:', navigator.userAgent);
-  
+  console.log('[detectEnvironment] isTauri:', isTauri, 'userAgent:', navigator.userAgent, 'protocol:', window.location?.protocol);
+
   isTauriEnvironment = isTauri;
   return isTauri;
 }
@@ -86,8 +88,10 @@ async function restApiCall<T>(endpoint: string, params?: any): Promise<T> {
   }
   
   console.log(`[REST API] Processed endpoint: ${processedEndpoint}`);
-  
-  const url = new URL(processedEndpoint, window.location.origin);
+
+  // Handle cases where window.location.origin might be null/undefined
+  const baseUrl = window.location.origin || 'http://localhost:8080';
+  const url = new URL(processedEndpoint, baseUrl);
   
   // Add remaining params as query parameters for GET requests (if no placeholders remain)
   if (params && !processedEndpoint.includes('{')) {
@@ -129,22 +133,38 @@ async function restApiCall<T>(endpoint: string, params?: any): Promise<T> {
 }
 
 /**
+ * Commands that must use Tauri invoke (never REST API)
+ */
+const TAURI_ONLY_COMMANDS = [
+  'list_teamleads',
+  'list_agents',
+  'create_agent',
+  'update_agent',
+  'delete_agent',
+  'get_agent',
+];
+
+/**
  * Unified API adapter that works in both Tauri and web environments
  */
 export async function apiCall<T>(command: string, params?: any): Promise<T> {
   const isWeb = !detectEnvironment();
-  
-  if (!isWeb) {
+  const isTauriOnly = TAURI_ONLY_COMMANDS.includes(command);
+
+  if (!isWeb || isTauriOnly) {
     // Tauri environment - try invoke
     console.log(`[Tauri] Calling: ${command}`, params);
     try {
       return await invoke<T>(command, params);
     } catch (error) {
       console.warn(`[Tauri] invoke failed, falling back to web mode:`, error);
-      // Fall through to web mode
+      // Fall through to web mode only if not a tauri-only command
+      if (isTauriOnly) {
+        throw error;
+      }
     }
   }
-  
+
   // Web environment - use REST API
   console.log(`[Web] Calling: ${command}`, params);
   
@@ -170,6 +190,7 @@ function mapCommandToEndpoint(command: string, _params?: any): string {
     
     // Agent commands
     'list_agents': '/api/agents',
+    'list_teamleads': '/api/agents/teamleads',
     'fetch_github_agents': '/api/agents/github',
     'fetch_github_agent_content': '/api/agents/github/content',
     'import_agent_from_github': '/api/agents/import/github',

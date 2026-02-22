@@ -52,9 +52,19 @@ const globalNavItems: NavItem[] = [
   { id: 'settings', label: '设置', icon: <Settings className="w-5 h-5" /> },
 ];
 
+interface SelectedTeamlead {
+  id: string;
+  name: string;
+  nickname?: string;
+  gender?: string;
+  prompt?: string;
+  model?: string;
+  color?: string;
+}
+
 interface ThreeLevelLayoutProps {
   className?: string;
-  onAddClick?: (project: { name: string; projectCode?: string; description: string; workDir: string }) => void;
+  onAddClick?: (project: { name: string; projectCode?: string; description: string; workDir: string; teamlead?: SelectedTeamlead }) => void;
   projects?: ProjectInfo[];
   members?: Member[];
   isCreatingProject?: boolean;

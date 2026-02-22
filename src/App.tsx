@@ -143,7 +143,19 @@ function AppContent() {
       // Refresh project list when a project finishes initialization
       try {
         const result = await invoke<DbProject[]>("storage_list_projects");
-        setDbProjects(result);
+        // 保留本地正在进行的项目状态，只更新已完成的项目
+        setDbProjects(prev => {
+          const localInProgress = prev.filter(p => p.initializing && p.progress && !p.progress.message.includes('完成'));
+          const serverProjects = result.map(p => {
+            // 如果服务器上的项目已完成（initializing = 0），但本地还在进行中，标记为完成
+            if (!p.initializing && localInProgress.some(l => l.project_id === p.project_id)) {
+              return { ...p, initializing: false };
+            }
+            return p;
+          });
+          // 合并：保留本地正在进行的项目，其他用服务器数据
+          return [...localInProgress, ...serverProjects.filter(s => !localInProgress.some(l => l.project_id === s.project_id))];
+        });
       } catch (error) {
         console.error("刷新项目列表失败:", error);
       }
@@ -151,7 +163,6 @@ function AppContent() {
 
     // Listen for project-progress event from backend
     const unlistenProgress = listen<{project_id: string; step: string; message: string}>("project-progress", (event) => {
-      console.log("Project progress event received:", event.payload);
       const { project_id, step, message } = event.payload;
       // Update project progress in the list
       setDbProjects(prev => prev.map(p => {
@@ -467,43 +478,43 @@ function AppContent() {
             onAddClick={async (project) => {
               console.log("新建项目:", project);
               try {
-                // 先在列表中添加占位项目（用于接收实时进度事件）
-                const tempProjectId = `temp-${Date.now()}`;
-                const placeholderProject: DbProject = {
-                  project_id: tempProjectId,
-                  project_name: project.name,
-                  workspace_id: '',
-                  workspace_path: project.workDir,
-                  initializing: true,
-                  progress: { step: 'starting', message: '启动后台任务...' }
-                };
-                setDbProjects(prev => [placeholderProject, ...prev]);
-
+                // 直接调用后端创建项目，获取真正的 project_id
                 const result = await invoke<{ project_id: string; workspace_id: string }>(
                   "storage_create_project",
                   {
                     input: {
                       name: project.name,
-                      project_code: undefined, // 暂时隐藏项目代码字段
+                      project_code: undefined,
                       description: project.description,
                       work_dir: project.workDir,
+                      teamlead: project.teamlead ? {
+                        id: project.teamlead.id,
+                        project_agent_id: "",
+                        name: project.teamlead.name,
+                        nickname: project.teamlead.nickname,
+                        gender: project.teamlead.gender,
+                        prompt: project.teamlead.prompt,
+                        model: project.teamlead.model,
+                        color: project.teamlead.color,
+                      } : undefined,
                     },
                   }
-                );
+                ).catch(err => {
+                  console.error("创建项目失败:", err);
+                  throw err;
+                });
                 console.log("项目创建成功:", result);
 
-                // 用实际项目替换占位项目
-                const updatedProjects = await invoke<DbProject[]>("storage_list_projects");
-                // 找到刚创建的项目（最新的）
-                const newProject = updatedProjects.find(p => p.project_id === result.project_id);
-                if (newProject) {
-                  setDbProjects(prev => [
-                    newProject,
-                    ...prev.filter(p => p.project_id !== tempProjectId)
-                  ]);
-                } else {
-                  setDbProjects(updatedProjects);
-                }
+                // 用返回的 project_id 创建项目，可以直接接收进度事件
+                const newProject: DbProject = {
+                  project_id: result.project_id,
+                  project_name: project.name,
+                  workspace_id: result.workspace_id,
+                  workspace_path: project.workDir,
+                  initializing: true,
+                  progress: { step: 'starting', message: '启动后台任务...' }
+                };
+                setDbProjects(prev => [newProject, ...prev]);
 
                 // 项目创建完成，关闭 loading 状态
                 setIsCreatingProject(false);
