@@ -9,7 +9,7 @@ mod process;
 use checkpoint::state::CheckpointState;
 use commands::agents::{
     cleanup_finished_processes, create_agent, delete_agent, execute_agent, export_agent,
-    export_agent_to_file, fetch_github_agent_content, fetch_github_agents, generate_team_members,
+    export_agent_to_file, fetch_github_agent_content, fetch_github_agents,
     get_agent, get_agent_run, get_agent_run_with_real_time_metrics, get_claude_binary_path,
     get_live_session_output, get_session_output, get_session_status, import_agent,
     import_agent_from_file, import_agent_from_github, init_database, kill_agent_session,
@@ -45,6 +45,9 @@ use commands::storage::{
 };
 use commands::usage::{
     get_session_stats, get_usage_by_date_range, get_usage_details, get_usage_stats,
+};
+use commands::teammate::{
+    get_teammate_status, send_to_teammate, start_teammate_agent, stop_teammate_agent,
 };
 use process::ProcessRegistryState;
 use std::sync::Mutex;
@@ -232,7 +235,6 @@ fn main() {
             // Agent Management
             list_agents,
             create_agent,
-            generate_team_members,
             update_agent,
             delete_agent,
             get_agent,
@@ -299,6 +301,11 @@ fn main() {
             // Proxy Settings
             get_proxy_settings,
             save_proxy_settings,
+            // Teammate Agent
+            start_teammate_agent,
+            send_to_teammate,
+            stop_teammate_agent,
+            get_teammate_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

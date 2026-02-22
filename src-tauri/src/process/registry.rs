@@ -15,6 +15,10 @@ pub enum ProcessType {
     ClaudeSession {
         session_id: String,
     },
+    TeammateAgent {
+        agent_id: String,
+        agent_name: String,
+    },
 }
 
 /// Information about a running agent process
@@ -48,6 +52,12 @@ impl ProcessRegistry {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Check if a process exists
+    pub fn exists(&self, run_id: &str) -> Result<bool, String> {
+        let processes = self.processes.lock().map_err(|e| e.to_string())?;
+        Ok(processes.contains_key(run_id))
     }
 
     /// Register a new running agent process
@@ -151,6 +161,57 @@ impl ProcessRegistry {
 
         processes.insert(run_id.clone(), process_handle);
         Ok(run_id)
+    }
+
+    /// Register a new teammate agent with child process and stdin
+    pub fn register_teammate_agent(
+        &self,
+        run_id: String,
+        agent_id: String,
+        agent_name: String,
+        pid: u32,
+        project_path: String,
+        task: String,
+        model: String,
+        child: Child,
+        stdin: ChildStdin,
+    ) -> Result<String, String> {
+        let process_info = ProcessInfo {
+            run_id: run_id.clone(),
+            process_type: ProcessType::TeammateAgent {
+                agent_id,
+                agent_name,
+            },
+            pid,
+            started_at: Utc::now(),
+            project_path,
+            task,
+            model,
+        };
+
+        let mut processes = self.processes.lock().map_err(|e| e.to_string())?;
+
+        let process_handle = ProcessHandle {
+            info: process_info,
+            child: Arc::new(Mutex::new(Some(child))),
+            stdin: Arc::new(Mutex::new(Some(stdin))),
+            live_output: Arc::new(Mutex::new(String::new())),
+        };
+
+        processes.insert(run_id.clone(), process_handle);
+        Ok(run_id)
+    }
+
+    /// Get all running teammate agents
+    pub fn get_running_teammate_agents(&self) -> Result<Vec<ProcessInfo>, String> {
+        let processes = self.processes.lock().map_err(|e| e.to_string())?;
+        Ok(processes
+            .values()
+            .filter_map(|handle| match &handle.info.process_type {
+                ProcessType::TeammateAgent { .. } => Some(handle.info.clone()),
+                _ => None,
+            })
+            .collect())
     }
 
     /// Internal method to register any process

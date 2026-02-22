@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Create Project Team
 
-为项目创建开发团队，生成 Team Lead 和 Reviewer 成员信息。
+为项目创建开发团队，生成 Team Lead 成员信息。
 
 ## 输入参数
 
@@ -17,58 +17,77 @@ disable-model-invocation: true
 
 ## 执行步骤
 
-### 1. 随机生成两个人名
+### 1. 随机生成一个人名
 
-从以下列表中随机选择 2 个英文名，确保性别不同（一人男，一人女）：
+从以下列表中随机选择 1 个人物作为Team Lead。
 
-**男性英文名：**
-- Oliver, James, William, Benjamin, Lucas, Henry, Alexander, Ethan, Daniel, Matthew
-- Henry, Joseph, David, Samuel, Ryan, Nathan, Christopher, Andrew, Joshua, Benjamin
-- Jack, Thomas, Charles, Connor, Sebastian, Adam, Julian, Gabriel, Dylan, Luke
+| 中文 | 英文 | 性别 |
+| --- | --- | --- |
+| 奥利佛 | Oliver | 男 |
+| 詹姆斯 | James | 男 |
+| 威廉 | William | 男 |
+| 本杰明 | Benjamin | 男 |
+| 卢卡斯 | Lucas | 男 |
+| 亨利 | Henry | 男 |
+| 亚历山大 | Alexander | 男 |
+| 伊森 | Ethan | 男 |
+| 丹尼尔 | Daniel | 男 |
+| 马修 | Matthew | 男 |
+| 约瑟夫 | Joseph | 男 |
+| 大卫 | David | 男 |
+| 塞缪尔 | Samuel | 男 |
+| 瑞安 | Ryan | 男 |
+| 内森 | Nathan | 男 |
+| 克里斯托弗 | Christopher | 男 |
+| 安德鲁 | Andrew | 男 |
+| 约书亚 | Joshua | 男 |
+| 杰克 | Jack | 男 |
+| 托马斯 | Thomas | 男 |
+| 查尔斯 | Charles | 男 |
+| 康纳 | Connor | 男 |
+| 塞巴斯蒂安 | Sebastian | 男 |
+| 亚当 | Adam | 男 |
+| 朱利安 | Julian | 男 |
+| 加布里埃尔 | Gabriel | 男 |
+| 迪伦 | Dylan | 男 |
+| 卢克 | Luke | 男 |
+| 索菲亚 | Sophia | 女 |
+| 艾玛 | Emma | 女 |
+| 奥利维娅 | Olivia | 女 |
+| 伊莎贝拉 | Isabella | 女 |
+| 艾娃 | Ava | 女 |
+| 米娅 | Mia | 女 |
+| 夏洛特 | Charlotte | 女 |
+| 阿米莉亚 | Amelia | 女 |
+| 哈珀 | Harper | 女 |
+| 伊芙琳 | Evelyn | 女 |
+| 索菲 | Sophie | 女 |
+| 格蕾丝 | Grace | 女 |
+| 克洛伊 | Chloe | 女 |
+| 维多利亚 | Victoria | 女 |
+| 莱利 | Riley | 女 |
+| 阿里亚 | Aria | 女 |
+| 莉莉 | Lily | 女 |
+| 奥罗拉 | Aurora | 女 |
+| 佐伊 | Zoey | 女 |
+| 佩内洛普 | Penelope | 女 |
+| 莱拉 | Layla | 女 |
+| 斯嘉丽 | Scarlett | 女 |
+| 塞奇 | Sage | 女 |
+| 维奥莱特 | Violet | 女 |
+| 鲁比 | Ruby | 女 |
+| 弗洛拉 | Flora | 女 |
+| 珀尔 | Pearl | 女 |
+| 艾瑞斯 | Iris | 女 |
+| 杰德 | Jade | 女 |
+| 锡达 | Cedar | 女 |
 
-**女性英文名：**
-- Sophia, Emma, Olivia, Isabella, Ava, Mia, Charlotte, Amelia, Harper, Evelyn
-- Sophie, Grace, Chloe, Victoria, Riley, Aria, Lily, Aurora, Zoey, Penelope
-- Layla, Scarlett, Sage, Violet, Ruby, Flora, Pearl, Iris, Jade, Cedar
 
-### 2. 翻译成中文名（5字以内）
+### 3. 生成 Team Lead Prompt
 
-翻译规则：
-- 男性常见中文名：奥利弗、詹姆斯、威廉、卢卡斯、亨利、亚历山大、伊桑、丹尼尔、马修、约瑟夫、大卫、塞缪尔、瑞安、克里斯托弗、安德鲁、乔舒亚、杰克、托马斯、查尔斯、塞巴斯蒂安
-- 女性常见中文名：苏菲、艾玛、奥利维亚、伊莎贝拉、艾娃、米娅、夏洛特、艾米丽、伊芙琳、格雷丝、克洛伊、维多利亚、莱莉、艾莉娅、莉莉、紫罗兰、露比、弗洛拉
+为 Team Lead 角色生成 prompt： 角色是Team Lead，能力包含必须是是Software Architect ，并且devil's advocate， 还有丰富的产品思维，和经验
+** 备注 ** : 如果是女性角色，偏产品一些，如果是男性角色偏技术一些
 
-### 3. 生成 Reviewer Prompt
-
-为 reviewer 生成 devil's advocate 角色的 prompt：
-
-```markdown
-你是 {{reviewer_name}}，项目 {{project_name}} 的资深技术评审专家（Devil's Advocate）。
-
-## 角色背景
-- 20年以上IT行业经验
-- 精通需求分析、系统架构、设计模式、编码规范
-- 熟悉从立项到运维的全生命周期
-- 擅长发现问题、提出质疑、推动改进
-- 严格审查技术方案，确保质量和可行性
-
-## 评审原则
-1. 质疑一切不合理的假设
-2. 挑战模糊或不完整的需求
-3. 检查方案的扩展性和维护性
-4. 确保安全性和性能考量
-5. 验证测试覆盖的完整性
-
-## 沟通风格
-- 理性、直接、客观
-- 用数据和事实支持观点
-- 提供建设性的替代方案
-
-当团队讨论技术方案时，你必须：
-- 指出潜在风险和漏洞
-- 提问挑战现有假设
-- 要求澄清模糊点
-- 推荐更好的替代方案
-```
 
 ### 4. 生成 team-name（合法文件夹名）
 
@@ -77,7 +96,7 @@ disable-model-invocation: true
 - 空格替换为 `-`
 - 移除非法字符（`/:?*"<>|`）
 - 连续短横线合并为一个
-- 不能有中文字符
+- 不能有中文字符（可以把中文变英文，或者转拼音）
 
 示例：
 - "My Project 123!" → `my-project-123`
@@ -116,26 +135,15 @@ config.json 内容：
     {
       "agentId": "{{leader_en_name}}@{{project_name}}",
       "name": "{{leader_en_name}}",
-      "agentType": "{{leader_en_name}}",
+      "nickname": "{{leader_zh_name}}",
+      "gender":"{{leader_gender}}",
+      "agentType": "general-purpose",
       "model": "",
+      "prompt": "{{lead_prompt}}",
       "joinedAt": {{current_timestamp}},
       "tmuxPaneId": "",
       "cwd": "{{workspace_path}}",
       "subscriptions": []
-    },
-    {
-      "agentId": "{{reviewer_en_name}}@{{project_name}}",
-      "name": "{{reviewer_en_name}}",
-      "agentType": "general-purpose",
-      "model": "",
-      "prompt": "{{reviewer_prompt}}",
-      "color": "{{random_color}}",
-      "planModeRequired": false,
-      "joinedAt": {{current_timestamp}},
-      "tmuxPaneId": "",
-      "cwd": "{{workspace_path}}",
-      "subscriptions": [],
-      "backendType": "auto"
     }
   ]
 }
@@ -143,7 +151,7 @@ config.json 内容：
 
 ## 输出格式
 
-然后输出已创建的 config.json 完整内容（确保输出是有效 JSON 格式，不需要其他内容）。
+然后输出已创建的 config.json 完整内容（确保是有效 JSON 格式）。
 
 ## 注意事项
 
