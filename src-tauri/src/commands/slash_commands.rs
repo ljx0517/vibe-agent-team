@@ -196,6 +196,27 @@ fn find_markdown_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+/// Load all commands from a directory
+fn load_all_commands_from_dir(
+    dir: &Path,
+    scope: &str,
+    commands: &mut Vec<SlashCommand>,
+) -> Result<()> {
+    let mut files = Vec::new();
+    find_markdown_files(dir, &mut files)?;
+
+    for file_path in files {
+        match load_command_from_file(&file_path, dir, scope) {
+            Ok(cmd) => commands.push(cmd),
+            Err(e) => {
+                error!("Failed to load command from {:?}: {}", file_path, e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Create default/built-in slash commands
 fn create_default_commands() -> Vec<SlashCommand> {
     vec![
@@ -468,4 +489,38 @@ fn remove_empty_dirs(dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Discover available agents from the database
+pub async fn discover_available_agents() -> Result<Vec<AgentInfo>, String> {
+    // This would query the database for available agents
+    // For now, return empty list - actual implementation depends on AgentDb
+    Ok(Vec::new())
+}
+
+/// Agent info for discovery
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentInfo {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub model: String,
+    pub tools: Vec<String>,
+}
+
+/// Discover custom skills from .claude/skills/ directory
+pub async fn discover_custom_skills() -> Result<Vec<SlashCommand>, String> {
+    // Find .claude/skills/ directory
+    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let skills_dir = home_dir.join(".claude").join("skills");
+
+    if !skills_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut skills = Vec::new();
+    load_all_commands_from_dir(&skills_dir, "user", &mut skills)
+        .map_err(|e| e.to_string())?;
+
+    Ok(skills)
 }
