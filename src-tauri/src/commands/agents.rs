@@ -546,6 +546,60 @@ pub async fn list_teamleads(db: State<'_, AgentDb>) -> Result<Vec<Agent>, String
     Ok(agents)
 }
 
+/// List agents for a specific project (via project_agents table)
+#[tauri::command]
+pub async fn list_project_agents(
+    db: State<'_, AgentDb>,
+    project_id: String,
+) -> Result<Vec<Agent>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    // Query agents via project_agents table (the canonical way)
+    let mut stmt = conn
+        .prepare(
+            "SELECT a.id, a.project_id, a.name, a.icon, a.color, a.nickname, a.gender,
+                    a.agent_type, a.system_prompt, a.default_task, a.model, a.tools,
+                    a.enable_file_read, a.enable_file_write, a.enable_network,
+                    a.hooks, a.settings, a.role_type, a.created_at, a.updated_at
+             FROM agents a
+             INNER JOIN project_agents pa ON a.id = pa.agent_id
+             WHERE pa.project_id = ?1
+             ORDER BY a.created_at DESC"
+        )
+        .map_err(|e| e.to_string())?;
+
+    let agents = stmt
+        .query_map([&project_id], |row| {
+            Ok(Agent {
+                id: Some(row.get(0)?),
+                project_id: row.get(1)?,
+                name: row.get(2)?,
+                icon: row.get(3)?,
+                color: row.get(4)?,
+                nickname: row.get(5)?,
+                gender: row.get(6)?,
+                agent_type: row.get(7)?,
+                system_prompt: row.get(8)?,
+                default_task: row.get(9)?,
+                model: row.get(10)?,
+                tools: row.get(11)?,
+                enable_file_read: row.get::<_, bool>(12).unwrap_or(true),
+                enable_file_write: row.get::<_, bool>(13).unwrap_or(true),
+                enable_network: row.get::<_, bool>(14).unwrap_or(false),
+                hooks: row.get(15)?,
+                settings: row.get(16)?,
+                role_type: row.get(17).ok(),
+                created_at: row.get(18)?,
+                updated_at: row.get(19)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(agents)
+}
+
 #[tauri::command]
 pub async fn create_agent(
     db: State<'_, AgentDb>,
