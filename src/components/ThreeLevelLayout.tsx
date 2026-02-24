@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { invoke } from '@tauri-apps/api/core';
 import {
   FolderOpen, FileText, Users, BarChart, MessageSquare, Settings,
   Search, Plus, MoreVertical, UserPlus, Smile, Scissors,
@@ -75,7 +76,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   className,
   onAddClick,
   projects = [],
-  members = [],
+  members: _members = [], // 使用 _members 避免未使用警告，内部使用 projectMembers
   isCreatingProject = false,
   onCreatingProjectChange,
 }) => {
@@ -83,10 +84,45 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const [selectedProject, setSelectedProject] = useState<ProjectInfo | null>(null);
   const [projectSearchQuery, setProjectSearchQuery] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [projectMembers, setProjectMembers] = useState<Member[]>([]);
+  const [dividerPosition, setDividerPosition] = useState(70); // 默认上部分70%
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     console.log('current selectedNav', selectedNav)
   }, [selectedNav])
+
+  // 当选中项目变化时，获取项目成员
+  useEffect(() => {
+    const fetchProjectMembers = async () => {
+      if (selectedProject) {
+        try {
+          const agents = await invoke<Array<{
+            id: string | null;
+            name: string;
+            icon: string;
+            color: string | null;
+            nickname: string | null;
+          }>>('list_project_agents', { projectId: selectedProject.project_id });
+
+          // 转换为 Member 格式
+          const members: Member[] = agents.map(agent => ({
+            id: agent.id || '',
+            name: agent.nickname || agent.name,
+            avatar: agent.icon || undefined,
+          }));
+          setProjectMembers(members);
+        } catch (error) {
+          console.error('Failed to fetch project members:', error);
+          setProjectMembers([]);
+        }
+      } else {
+        setProjectMembers([]);
+      }
+    };
+
+    fetchProjectMembers();
+  }, [selectedProject]);
 
   // 过滤项目
   const filteredProjects = projects.filter(p =>
@@ -98,6 +134,44 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     onAddClick?.(project);
     setShowCreateDialog(false);
   };
+
+  // 拖拽分隔条处理
+  const handleDividerMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+
+      // 获取主内容区的容器
+      const container = document.getElementById('main-content-container');
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const newPosition = ((e.clientY - rect.top) / rect.height) * 100;
+
+      // 限制范围在 20% - 80% 之间
+      if (newPosition >= 20 && newPosition <= 80) {
+        setDividerPosition(newPosition);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
 
   // 渲染第一栏 - 全局导航
   const renderGlobalNav = () => (
@@ -249,6 +323,15 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
               <p className="text-xs text-gray-400">项目描述在这里</p>
             </div>
             <div className="flex items-center gap-2">
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-8 h-8 rounded-md hover:bg-gray-100 flex items-center justify-center gap-1"
+              >
+                <UserPlus className="w-4 h-4 text-gray-500" />
+                {/*<span className="text-xs text-gray-500">邀请</span>*/}
+              </motion.button>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -256,60 +339,81 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
               >
                 <MoreVertical className="w-4 h-4 text-gray-500" />
               </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="w-8 h-8 rounded-md hover:bg-gray-100 flex items-center justify-center gap-1"
-              >
-                <UserPlus className="w-4 h-4 text-gray-500" />
-                <span className="text-xs text-gray-500">邀请</span>
-              </motion.button>
             </div>
           </div>
-
-          {/* 中央内容区 */}
-          <div className="flex-1" />
-
-          {/* 底部输入工具栏 */}
-          <div className="h-12 border-t flex items-center px-4 gap-2">
-            <div className="flex items-center gap-1">
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <Smile className="w-4 h-4" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <Scissors className="w-4 h-4" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <Image className="w-4 h-4" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <FileVideo className="w-4 h-4" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <ListTodo className="w-4 h-4" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <FolderPlus className="w-4 h-4" />
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <MoreHorizontal className="w-4 h-4" />
-              </motion.button>
+          <div className="flex-1 flex flex-col overflow-hidden" id="main-content-container">
+            {/* 上部分：中央内容区 */}
+            <div
+              className="overflow-hidden"
+              style={{ height: `${dividerPosition}%` }}
+            >
+              <div className="h-full w-full flex items-center justify-center text-gray-300">
+                <div className="text-center">
+                  <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg">中央内容区</p>
+                </div>
+              </div>
             </div>
 
-            <div className="flex-1" />
+            {/* 拖拽分隔条 */}
+            <div
+              className={cn(
+                "h-1 bg-gray-200 cursor-row-resize hover:bg-blue-400 transition-colors flex-shrink-0",
+                isDragging && "bg-blue-500"
+              )}
+              onMouseDown={handleDividerMouseDown}
+            />
 
-            <div className="flex items-center gap-2">
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                className="h-8 px-3 bg-blue-500 text-white rounded-md flex items-center gap-1.5 text-sm"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                快速会议
-              </motion.button>
-              <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-                <BookOpen className="w-4 h-4" />
-              </motion.button>
+            {/* 下部分：输入工具栏 */}
+            <div
+              className="flex-shrink-0 overflow-hidden flex flex-1 flex-col"
+              style={{ height: `${100 - dividerPosition}%` }}
+            >
+              {/* 底部输入工具栏 */}
+              <div className="h-12 border-t flex items-center px-4 gap-2">
+                <div className="flex items-center gap-1">
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <Smile className="w-4 h-4" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <Scissors className="w-4 h-4" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <Image className="w-4 h-4" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <FileVideo className="w-4 h-4" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <ListTodo className="w-4 h-4" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <FolderPlus className="w-4 h-4" />
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <MoreHorizontal className="w-4 h-4" />
+                  </motion.button>
+                </div>
+
+                <div className="flex-1" />
+
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="h-8 px-3 bg-blue-500 text-white rounded-md flex items-center gap-1.5 text-sm"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    快速会议
+                  </motion.button>
+                  <motion.button whileHover={{ scale: 1.1 }} className="w-8 h-8 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+                    <BookOpen className="w-4 h-4" />
+                  </motion.button>
+                </div>
+              </div>
+              <div className="w-full flex-1 px-4 bg-red">
+                <textarea className="w-full h-full box-border resize-none" name="" id=""></textarea>
+              </div>
             </div>
           </div>
         </>
@@ -329,7 +433,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     <div className="w-56 bg-green-50/50 flex flex-col border-l">
       {/* 顶部标题 */}
       <div className="h-14 border-b flex items-center justify-between px-4">
-        <span className="text-sm font-medium">群成员 · {members.length || 8}</span>
+        <span className="text-sm font-medium">群成员 · {projectMembers.length}</span>
         <div className="flex items-center gap-1">
           <motion.button whileHover={{ scale: 1.1 }} className="w-7 h-7 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
             <Search className="w-3.5 h-3.5" />
@@ -342,9 +446,9 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
 
       {/* 成员列表 */}
       <ScrollArea className="flex-1 p-3">
-        {members.length > 0 ? (
+        {projectMembers.length > 0 ? (
           <div className="space-y-2">
-            {members.map((member) => (
+            {projectMembers.map((member) => (
               <div key={member.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/50 cursor-pointer">
                 <div className="w-8 h-8 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white text-xs">
                   {member.name.charAt(0)}
