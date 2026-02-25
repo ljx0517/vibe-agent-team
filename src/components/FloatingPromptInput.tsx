@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
-import { TooltipProvider, TooltipSimple, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip-modern";
+import { TooltipSimple, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip-modern";
 import { FilePicker } from "./FilePicker";
 import { SlashCommandPicker } from "./SlashCommandPicker";
 import { AgentPicker } from "./AgentPicker";
@@ -967,7 +967,6 @@ const FloatingPromptInputInner = (
   const selectedModelData = MODELS.find(m => m.id === selectedModel) || MODELS[0];
 
   return (
-    <TooltipProvider>
     <>
       {/* Expanded Modal */}
       <AnimatePresence>
@@ -1458,7 +1457,6 @@ const FloatingPromptInputInner = (
         </div>
       </div>
     </>
-    </TooltipProvider>
   );
 };
 
