@@ -14,7 +14,7 @@ import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
 import { FloatingPromptInput } from './FloatingPromptInput';
 import { api } from '@/lib/api';
-
+import { TooltipProvider } from "@/components/ui/tooltip-modern";
 // 项目进度类型
 interface ProjectProgress {
   step: string;
@@ -332,6 +332,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const renderMainContent = () => (
     <div className="flex-1 bg-white flex flex-col">
       {selectedProject ? (
+        <TooltipProvider>
         <>
           {/* 顶部标题栏 */}
           <div className="h-14 border-b flex items-center justify-between px-4">
@@ -428,7 +429,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                   </motion.button>
                 </div>
               </div>
-              <div className="w-full flex-1 px-4 bg-red">
+              <div className="w-full flex-1 px-0 bg-red">
                 <FloatingPromptInput
                   onSend={handleSendMessage}
                   projectId={selectedProject?.project_id}
@@ -440,6 +441,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             </div>
           </div>
         </>
+        </TooltipProvider>
       ) : (
         <div className="flex-1 flex items-center justify-center text-gray-300">
           <div className="text-center">
