@@ -826,7 +826,7 @@ const FloatingPromptInputInner = (
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (showAgentPicker && e.key === 'Escape') {
       e.preventDefault();
       setShowAgentPicker(false);
