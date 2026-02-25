@@ -12,6 +12,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
+import { FloatingPromptInput } from './FloatingPromptInput';
+import { api } from '@/lib/api';
 
 // 项目进度类型
 interface ProjectProgress {
@@ -87,6 +89,21 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const [projectMembers, setProjectMembers] = useState<Member[]>([]);
   const [dividerPosition, setDividerPosition] = useState(70); // 默认上部分70%
   const [isDragging, setIsDragging] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
+  // 发送消息处理函数
+  const handleSendMessage = async (text: string, _model: "sonnet" | "opus") => {
+    if (!selectedProject || !text.trim()) return;
+
+    setIsSending(true);
+    try {
+      await api.sendMessage(selectedProject.project_id, text.trim());
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   useEffect(() => {
     console.log('current selectedNav', selectedNav)
@@ -412,8 +429,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                 </div>
               </div>
               <div className="w-full flex-1 px-4 bg-red">
-                {/* 这个文本框作为文本输入，要做到回车发送，shift+enter换行，这个文本框其实就是发送数据 */}
-                <textarea className="w-full h-full box-border resize-none" name="" id=""></textarea>
+                <FloatingPromptInput
+                  onSend={handleSendMessage}
+                  projectId={selectedProject?.project_id}
+                  projectPath={selectedProject?.workspace_path}
+                  isLoading={isSending}
+                  disabled={!selectedProject}
+                />
               </div>
             </div>
           </div>
