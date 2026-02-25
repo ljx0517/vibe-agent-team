@@ -367,7 +367,7 @@ const FloatingPromptInputInner = (
     if (textareaRef.current && !isExpanded) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      const newHeight = Math.min(Math.max(scrollHeight, 48), 240);
+      const newHeight = Math.max(scrollHeight, 48);
       setTextareaHeight(newHeight);
       textareaRef.current.style.height = `${newHeight}px`;
     }
@@ -469,8 +469,8 @@ const FloatingPromptInputInner = (
       // Reset height to auto to get the actual scrollHeight
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      // Set min height to 48px and max to 240px (about 10 lines)
-      const newHeight = Math.min(Math.max(scrollHeight, 48), 240);
+      // Set min height to 48px, no max height limit
+      const newHeight = Math.max(scrollHeight, 48);
       setTextareaHeight(newHeight);
       textareaRef.current.style.height = `${newHeight}px`;
     }
@@ -1356,12 +1356,11 @@ const FloatingPromptInputInner = (
                   disabled={disabled}
                   className={cn(
                     "resize-none pr-20 pl-3 py-2.5 transition-all duration-150",
-                    dragActive && "border-primary",
-                    textareaHeight >= 240 && "overflow-y-auto scrollbar-thin"
+                    dragActive && "border-primary"
                   )}
                   style={{
                     height: `${textareaHeight}px`,
-                    overflowY: textareaHeight >= 240 ? 'auto' : 'hidden'
+                    overflowY: 'hidden'
                   }}
                 />
 
