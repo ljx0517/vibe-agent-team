@@ -429,7 +429,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                 </div>
               </div>
               <div className="w-full flex-1 px-4 bg-red">
-                {/* 消息输入框已移至 renderProjectPage 最外层 */}
+                <FloatingPromptInput
+                  onSend={handleSendMessage}
+                  projectId={selectedProject?.project_id}
+                  projectPath={selectedProject?.workspace_path}
+                  isLoading={isSending}
+                  disabled={!selectedProject}
+                />
               </div>
             </div>
           </div>
@@ -504,15 +510,6 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
 
       {/* 项目页面 - 第四栏（成员列表） */}
       {selectedProject && renderMemberList()}
-
-      {/* 消息输入框 - 放在最外层以避免被遮挡 */}
-      <FloatingPromptInput
-        onSend={handleSendMessage}
-        projectId={selectedProject?.project_id}
-        projectPath={selectedProject?.workspace_path}
-        isLoading={isSending}
-        disabled={!selectedProject}
-      />
     </>
   );
 
