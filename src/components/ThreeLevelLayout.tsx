@@ -332,7 +332,6 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const renderMainContent = () => (
     <div className="flex-1 bg-white flex flex-col">
       {selectedProject ? (
-        <TooltipProvider>
         <>
           {/* 顶部标题栏 */}
           <div className="h-14 border-b flex items-center justify-between px-4">
@@ -429,19 +428,12 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                   </motion.button>
                 </div>
               </div>
-              <div className="w-full flex-1 px-0 bg-red">
-                <FloatingPromptInput
-                  onSend={handleSendMessage}
-                  projectId={selectedProject?.project_id}
-                  projectPath={selectedProject?.workspace_path}
-                  isLoading={isSending}
-                  disabled={!selectedProject}
-                />
+              <div className="w-full flex-1 px-4 bg-red">
+                {/* 消息输入框已移至 renderProjectPage 最外层 */}
               </div>
             </div>
           </div>
         </>
-        </TooltipProvider>
       ) : (
         <div className="flex-1 flex items-center justify-center text-gray-300">
           <div className="text-center">
@@ -512,6 +504,15 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
 
       {/* 项目页面 - 第四栏（成员列表） */}
       {selectedProject && renderMemberList()}
+
+      {/* 消息输入框 - 放在最外层以避免被遮挡 */}
+      <FloatingPromptInput
+        onSend={handleSendMessage}
+        projectId={selectedProject?.project_id}
+        projectPath={selectedProject?.workspace_path}
+        isLoading={isSending}
+        disabled={!selectedProject}
+      />
     </>
   );
 
