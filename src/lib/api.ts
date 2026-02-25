@@ -447,6 +447,21 @@ export interface ImportServerResult {
 }
 
 /**
+ * Message structure for the database
+ */
+export interface Message {
+  id: string;
+  project_id: string;
+  sender_id: string;
+  sender_name: string;
+  target_id: string;
+  target_name?: string;
+  content: string;
+  message_type: string; // "user", "thinking", "response"
+  created_at: string;
+}
+
+/**
  * API client for interacting with the Rust backend
  */
 export const api = {
@@ -1959,6 +1974,74 @@ export const api = {
       return await apiCall<string>("slash_command_delete", { commandId, projectPath });
     } catch (error) {
       console.error("Failed to delete slash command:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Send a message to a project (dispatch to target agent or TeamLead)
+   * @param projectId - The project ID
+   * @param content - Message content (can include @username for targeting specific agents)
+   * @param sender - Sender ID (typically "user")
+   * @param senderName - Sender display name
+   * @returns Promise resolving to the sent message
+   */
+  async sendMessage(
+    projectId: string,
+    content: string,
+    sender: string = "user",
+    senderName: string = "You"
+  ): Promise<Message> {
+    try {
+      return await apiCall<Message>("send_message", {
+        project_id: projectId,
+        content,
+        sender,
+        sender_name: senderName,
+      });
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get messages for a project
+   * @param projectId - The project ID
+   * @returns Promise resolving to array of messages
+   */
+  async getMessages(projectId: string): Promise<Message[]> {
+    try {
+      return await apiCall<Message[]>("get_messages", { project_id: projectId });
+    } catch (error) {
+      console.error("Failed to get messages:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Save a message response from an agent
+   * @param projectId - The project ID
+   * @param runId - The agent run ID
+   * @param content - Response content
+   * @param messageType - Message type ("thinking" or "response")
+   * @returns Promise resolving to the saved message
+   */
+  async saveMessageResponse(
+    projectId: string,
+    runId: string,
+    content: string,
+    messageType: string
+  ): Promise<Message> {
+    try {
+      return await apiCall<Message>("save_message_response", {
+        project_id: projectId,
+        run_id: runId,
+        content,
+        message_type: messageType,
+      });
+    } catch (error) {
+      console.error("Failed to save message response:", error);
       throw error;
     }
   },

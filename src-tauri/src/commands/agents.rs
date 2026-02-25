@@ -456,6 +456,23 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
     // Add column if not exists
     let _ = conn.execute("ALTER TABLE project_agents ADD COLUMN project_agent_id TEXT NOT NULL DEFAULT ''", []);
 
+    // Create messages table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            sender_id TEXT NOT NULL,
+            sender_name TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            target_name TEXT,
+            content TEXT NOT NULL,
+            message_type TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }
 

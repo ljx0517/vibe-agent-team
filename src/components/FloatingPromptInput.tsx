@@ -59,6 +59,15 @@ interface FloatingPromptInputProps {
    */
   projectPath?: string;
   /**
+   * Project ID for message dispatching (used with onSendToAgent)
+   */
+  projectId?: string;
+  /**
+   * Callback for sending messages to agents via @ mention
+   * If provided, messages with @username will be dispatched to the agent
+   */
+  onSendToAgent?: (prompt: string) => Promise<void>;
+  /**
    * Optional className for styling
    */
   className?: string;
@@ -218,6 +227,8 @@ const FloatingPromptInputInner = (
     disabled = false,
     defaultModel = "sonnet",
     projectPath,
+    projectId: _projectId,
+    onSendToAgent,
     className,
     onCancel,
     extraMenuItems,
@@ -692,13 +703,31 @@ const FloatingPromptInputInner = (
     return false;
   };
 
-  const handleSend = () => {
+  // Regex to match @username pattern
+  const AT_MENTION_REGEX = /@(\w+)/;
+
+  const handleSend = async () => {
     if (isIMEInteraction()) {
       return;
     }
 
     if (prompt.trim() && !disabled) {
       let finalPrompt = prompt.trim();
+
+      // Check if prompt contains @ mention and onSendToAgent is provided
+      if (onSendToAgent && AT_MENTION_REGEX.test(finalPrompt)) {
+        // Send to agent via @ mention
+        try {
+          await onSendToAgent(finalPrompt);
+        } catch (error) {
+          console.error('[FloatingPromptInput] Failed to send to agent:', error);
+          // Fall through to normal send
+        }
+        setPrompt("");
+        setEmbeddedImages([]);
+        setTextareaHeight(48);
+        return;
+      }
 
       // Append thinking phrase if not auto mode
       const thinkingMode = THINKING_MODES.find(m => m.id === selectedThinkingMode);
@@ -713,7 +742,7 @@ const FloatingPromptInputInner = (
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (showFilePicker && e.key === 'Escape') {
       e.preventDefault();
       setShowFilePicker(false);
@@ -746,7 +775,7 @@ const FloatingPromptInputInner = (
         return;
       }
       e.preventDefault();
-      handleSend();
+      await handleSend();
     }
   };
 
@@ -1037,7 +1066,7 @@ const FloatingPromptInputInner = (
                     transition={{ duration: 0.15 }}
                   >
                     <Button
-                      onClick={handleSend}
+                      onClick={() => handleSend()}
                       disabled={!prompt.trim() || disabled}
                       size="default"
                       className="min-w-[60px]"
@@ -1269,7 +1298,7 @@ const FloatingPromptInputInner = (
                       transition={{ duration: 0.15 }}
                     >
                       <Button
-                        onClick={isLoading ? onCancel : handleSend}
+                        onClick={() => isLoading ? onCancel?.() : handleSend()}
                         disabled={isLoading ? false : (!prompt.trim() || disabled)}
                         variant={isLoading ? "destructive" : prompt.trim() ? "default" : "ghost"}
                         size="icon"

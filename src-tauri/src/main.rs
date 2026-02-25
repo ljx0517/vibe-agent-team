@@ -49,6 +49,9 @@ use commands::usage::{
 use commands::teammate::{
     get_teammate_status, send_to_teammate, start_teammate_agent, stop_teammate_agent,
 };
+use commands::message::{
+    get_messages, save_message_response, send_message,
+};
 use process::ProcessRegistryState;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -308,6 +311,10 @@ fn main() {
             send_to_teammate,
             stop_teammate_agent,
             get_teammate_status,
+            // Message
+            send_message,
+            get_messages,
+            save_message_response,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

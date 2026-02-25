@@ -412,6 +412,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                 </div>
               </div>
               <div className="w-full flex-1 px-4 bg-red">
+                {/* 这个文本框作为文本输入，要做到回车发送，shift+enter换行，这个文本框其实就是发送数据 */}
                 <textarea className="w-full h-full box-border resize-none" name="" id=""></textarea>
               </div>
             </div>

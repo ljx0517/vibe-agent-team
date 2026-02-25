@@ -214,6 +214,26 @@ impl ProcessRegistry {
             .collect())
     }
 
+    /// Find a running teammate agent by project path and agent ID
+    pub fn find_teammate_run_id(
+        &self,
+        project_path: &str,
+        agent_id: &str,
+    ) -> Option<String> {
+        let processes = self.processes.lock().ok()?;
+        for handle in processes.values() {
+            if let ProcessType::TeammateAgent {
+                agent_id: id, ..
+            } = &handle.info.process_type
+            {
+                if id == agent_id && handle.info.project_path == project_path {
+                    return Some(handle.info.run_id.clone());
+                }
+            }
+        }
+        None
+    }
+
     /// Internal method to register any process
     fn register_process_internal(
         &self,

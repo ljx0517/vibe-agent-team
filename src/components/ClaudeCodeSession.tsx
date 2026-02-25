@@ -890,6 +890,26 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
     }
   };
 
+  // Handle sending message to an agent via @ mention
+  const handleSendToAgent = async (prompt: string) => {
+    // Get project ID from effectiveSession or derive from projectPath
+    const projectId = effectiveSession?.project_id || projectPath?.replace(/[^a-zA-Z0-9]/g, '-');
+
+    if (!projectId) {
+      console.error('[ClaudeCodeSession] No project ID available for sending to agent');
+      setError("No project selected");
+      return;
+    }
+
+    try {
+      console.log('[ClaudeCodeSession] Sending to agent:', { projectId, prompt });
+      await api.sendMessage(projectId, prompt, "user", "You");
+    } catch (err) {
+      console.error("Failed to send message to agent:", err);
+      setError("Failed to send message to agent");
+    }
+  };
+
   const handleCopyAsJsonl = async () => {
     const jsonl = rawJsonlOutput.join('\n');
     await navigator.clipboard.writeText(jsonl);
@@ -1527,6 +1547,8 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
               isLoading={isLoading}
               disabled={!projectPath}
               projectPath={projectPath}
+              projectId={effectiveSession?.project_id || projectPath?.replace(/[^a-zA-Z0-9]/g, '-')}
+              onSendToAgent={handleSendToAgent}
               extraMenuItems={
                 <>
                   {effectiveSession && (

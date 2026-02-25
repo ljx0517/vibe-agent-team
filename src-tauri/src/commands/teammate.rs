@@ -10,6 +10,62 @@ use crate::claude_binary::find_claude_binary;
 use crate::commands::agents::{get_agent, AgentDb};
 use crate::process::ProcessRegistryState;
 
+/// Agent settings parsed from JSON
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentSettings {
+    /// Maximum number of agentic turns before the subagent stops
+    #[serde(default)]
+    pub max_turns: Option<u32>,
+    /// Background mode - run as background task
+    #[serde(default)]
+    pub background: Option<bool>,
+    /// Memory scope: "user", "project", or "local"
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// Custom skills to preload
+    #[serde(default)]
+    pub skills: Option<Vec<String>>,
+    /// MCP servers available to this agent
+    #[serde(default)]
+    pub mcp_servers: Option<serde_json::Value>,
+}
+
+/// Hook configuration parsed from JSON
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AgentHooks {
+    /// PreToolUse hooks
+    #[serde(default)]
+    pub pre_tool_use: Option<Vec<HookConfig>>,
+    /// PostToolUse hooks
+    #[serde(default)]
+    pub post_tool_use: Option<Vec<HookConfig>>,
+    /// Stop hook
+    #[serde(default)]
+    pub stop: Option<Vec<HookConfig>>,
+}
+
+/// Hook configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookConfig {
+    /// Event matcher
+    #[serde(default)]
+    pub matcher: Option<String>,
+    /// Hooks to run
+    #[serde(default)]
+    pub hooks: Vec<HookDefinition>,
+}
+
+/// Hook definition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookDefinition {
+    /// Hook type: "command"
+    #[serde(default)]
+    pub r#type: Option<String>,
+    /// Command to run
+    #[serde(default)]
+    pub command: Option<String>,
+}
+
 /// Represents a running teammate agent session
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TeammateSession {
@@ -19,6 +75,66 @@ pub struct TeammateSession {
     pub project_path: String,
     pub model: String,
     pub status: String, // 'running', 'stopped'
+}
+
+/// Determine permission mode based on agent configuration
+fn get_permission_mode(
+    enable_file_read: bool,
+    enable_file_write: bool,
+    enable_network: bool,
+    skip_permissions: bool,
+) -> String {
+    if skip_permissions {
+        "bypassPermissions".to_string()
+    } else if enable_file_write {
+        "acceptEdits".to_string()
+    } else if enable_file_read && !enable_network {
+        "plan".to_string()
+    } else {
+        "default".to_string()
+    }
+}
+
+/// Build disallowed tools list based on permissions
+fn get_disallowed_tools(
+    enable_file_read: bool,
+    enable_file_write: bool,
+    enable_network: bool,
+) -> Vec<String> {
+    let mut disallowed = Vec::new();
+
+    if !enable_file_read {
+        disallowed.push("Read".to_string());
+    }
+    if !enable_file_write {
+        disallowed.push("Write".to_string());
+        disallowed.push("Edit".to_string());
+        disallowed.push("Create".to_string());
+        disallowed.push("Delete".to_string());
+    }
+    if !enable_network {
+        disallowed.push("Bash".to_string());
+        disallowed.push("WebFetch".to_string());
+        disallowed.push("WebSearch".to_string());
+    }
+
+    disallowed
+}
+
+/// Parse agent settings from JSON string
+fn parse_agent_settings(settings_json: &Option<String>) -> AgentSettings {
+    match settings_json {
+        Some(json) => serde_json::from_str(json).unwrap_or_default(),
+        None => AgentSettings::default(),
+    }
+}
+
+/// Parse agent hooks from JSON string
+fn parse_agent_hooks(hooks_json: &Option<String>) -> AgentHooks {
+    match hooks_json {
+        Some(json) => serde_json::from_str(json).unwrap_or_default(),
+        None => AgentHooks::default(),
+    }
 }
 
 /// Find and return the claude binary path
@@ -99,16 +215,112 @@ pub async fn start_teammate_agent(
     // Determine model to use
     let execution_model = model.unwrap_or_else(|| agent.model.clone());
 
+    // Parse settings and hooks
+    let settings = parse_agent_settings(&agent.settings);
+    let hooks = parse_agent_hooks(&agent.hooks);
+
     // Generate run_id
     let run_id = Uuid::new_v4().to_string();
 
-    // Build agents JSON config for --agents flag
-    let agents_json = serde_json::json!({
-        &agent_id: {
-            "prompt": agent.system_prompt,
-            "tools": agent.tools.as_ref().and_then(|t| serde_json::from_str::<Vec<String>>(t).ok()).unwrap_or_default(),
-            "model": execution_model.clone()
+    // Determine if we should skip permissions (for backwards compatibility, default to true)
+    let skip_permissions = true;
+
+    // Get permission mode based on agent configuration
+    let permission_mode = get_permission_mode(
+        agent.enable_file_read,
+        agent.enable_file_write,
+        agent.enable_network,
+        skip_permissions,
+    );
+
+    // Get disallowed tools based on permissions
+    let disallowed_tools = get_disallowed_tools(
+        agent.enable_file_read,
+        agent.enable_file_write,
+        agent.enable_network,
+    );
+
+    // Get tools list from agent config
+    let tools: Vec<String> = agent
+        .tools
+        .as_ref()
+        .and_then(|t| serde_json::from_str::<Vec<String>>(t).ok())
+        .unwrap_or_default();
+
+    // Build agents JSON config for --agents flag (Claude Code Subagent format)
+    let mut agent_config = serde_json::json!({
+        "description": agent.default_task.clone().unwrap_or_else(|| format!("Teammate agent: {}", agent.name)),
+        "prompt": agent.system_prompt,
+        "tools": tools,
+        "model": execution_model.clone(),
+        "permissionMode": permission_mode,
+    });
+
+    // Add disallowed tools if any
+    if !disallowed_tools.is_empty() {
+        agent_config["disallowedTools"] = serde_json::json!(disallowed_tools);
+    }
+
+    // Add maxTurns if specified
+    if let Some(max_turns) = settings.max_turns {
+        agent_config["maxTurns"] = serde_json::json!(max_turns);
+    }
+
+    // Add background mode if specified
+    if let Some(background) = settings.background {
+        agent_config["background"] = serde_json::json!(background);
+    }
+
+    // Add memory scope if specified
+    if let Some(memory) = settings.memory {
+        agent_config["memory"] = serde_json::json!(memory);
+    }
+
+    // Add skills if specified
+    if let Some(skills) = settings.skills {
+        agent_config["skills"] = serde_json::json!(skills);
+    }
+
+    // Add MCP servers if specified
+    if let Some(mcp_servers) = settings.mcp_servers {
+        agent_config["mcpServers"] = mcp_servers;
+    }
+
+    // Add hooks if specified
+    let has_hooks = hooks.pre_tool_use.as_ref().map_or(false, |v| !v.is_empty())
+        || hooks.post_tool_use.as_ref().map_or(false, |v| !v.is_empty())
+        || hooks.stop.is_some();
+
+    if has_hooks {
+        let mut hooks_config = serde_json::json!({});
+        let mut has_any_hook = false;
+
+        if let Some(pre_tool_use) = hooks.pre_tool_use {
+            if !pre_tool_use.is_empty() {
+                hooks_config["PreToolUse"] = serde_json::json!(pre_tool_use);
+                has_any_hook = true;
+            }
         }
+        if let Some(post_tool_use) = hooks.post_tool_use {
+            if !post_tool_use.is_empty() {
+                hooks_config["PostToolUse"] = serde_json::json!(post_tool_use);
+                has_any_hook = true;
+            }
+        }
+        if let Some(stop) = hooks.stop {
+            if !stop.is_empty() {
+                hooks_config["Stop"] = serde_json::json!(stop);
+                has_any_hook = true;
+            }
+        }
+
+        if has_any_hook {
+            agent_config["hooks"] = hooks_config;
+        }
+    }
+
+    let agents_json = serde_json::json!({
+        &agent_id: agent_config
     });
 
     // Find Claude binary
@@ -122,14 +334,20 @@ pub async fn start_teammate_agent(
 
     // Build command arguments
     // Note: We don't use -p (task) because we want to wait for stdin input
-    let args = vec![
+    let mut args = vec![
         "--agents".to_string(),
         agents_json.to_string(),
         "--output-format".to_string(),
         "stream-json".to_string(),
         "--verbose".to_string(),
-        "--dangerously-skip-permissions".to_string(),
     ];
+
+    // Only add skip-permissions flag if permissionMode is bypassPermissions
+    if permission_mode == "bypassPermissions" {
+        args.push("--dangerously-skip-permissions".to_string());
+    }
+
+    info!("Claude args: {:?}", args);
 
     info!("Claude args: {:?}", args);
 
