@@ -21,8 +21,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { TooltipProvider, TooltipSimple, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip-modern";
 import { FilePicker } from "./FilePicker";
 import { SlashCommandPicker } from "./SlashCommandPicker";
+import { AgentPicker } from "./AgentPicker";
 import { ImagePreview } from "./ImagePreview";
-import { type FileEntry, type SlashCommand } from "@/lib/api";
+import { type FileEntry, type SlashCommand, type Agent } from "@/lib/api";
 
 // Conditional import for Tauri webview window
 let tauriGetCurrentWebviewWindow: any;
@@ -58,6 +59,10 @@ interface FloatingPromptInputProps {
    * Project path for file picker
    */
   projectPath?: string;
+  /**
+   * Project ID for agent picker (for @ mentions)
+   */
+  projectId?: string;
   /**
    * Optional className for styling
    */
@@ -218,6 +223,7 @@ const FloatingPromptInputInner = (
     disabled = false,
     defaultModel = "sonnet",
     projectPath,
+    projectId,
     className,
     onCancel,
     extraMenuItems,
@@ -234,6 +240,8 @@ const FloatingPromptInputInner = (
   const [filePickerQuery, setFilePickerQuery] = useState("");
   const [showSlashCommandPicker, setShowSlashCommandPicker] = useState(false);
   const [slashCommandQuery, setSlashCommandQuery] = useState("");
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const [agentPickerQuery, setAgentPickerQuery] = useState("");
   const [cursorPosition, setCursorPosition] = useState(0);
   const [embeddedImages, setEmbeddedImages] = useState<string[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -475,10 +483,17 @@ const FloatingPromptInputInner = (
     }
 
     // Check if @ was just typed
-    if (projectPath?.trim() && newValue.length > prompt.length && newValue[newCursorPosition - 1] === '@') {
-      console.log('[FloatingPromptInput] @ detected, projectPath:', projectPath);
-      setShowFilePicker(true);
-      setFilePickerQuery("");
+    if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === '@') {
+      console.log('[FloatingPromptInput] @ detected, projectId:', projectId, 'projectPath:', projectPath);
+      // If projectId exists, show AgentPicker for member selection
+      // Otherwise, show FilePicker for file selection (fallback)
+      if (projectId?.trim()) {
+        setShowAgentPicker(true);
+        setAgentPickerQuery("");
+      } else if (projectPath?.trim()) {
+        setShowFilePicker(true);
+        setFilePickerQuery("");
+      }
       setCursorPosition(newCursorPosition);
     }
 
@@ -508,7 +523,29 @@ const FloatingPromptInputInner = (
     }
 
     // Check if we're typing after @ (for search query)
-    if (showFilePicker && newCursorPosition >= cursorPosition) {
+    if (showAgentPicker && newCursorPosition >= cursorPosition) {
+      // Find the @ position before cursor
+      let atPosition = -1;
+      for (let i = newCursorPosition - 1; i >= 0; i--) {
+        if (newValue[i] === '@') {
+          atPosition = i;
+          break;
+        }
+        // Stop if we hit whitespace (new word)
+        if (newValue[i] === ' ' || newValue[i] === '\n') {
+          break;
+        }
+      }
+
+      if (atPosition !== -1) {
+        const query = newValue.substring(atPosition + 1, newCursorPosition);
+        setAgentPickerQuery(query);
+      } else {
+        // @ was removed or cursor moved away
+        setShowAgentPicker(false);
+        setAgentPickerQuery("");
+      }
+    } else if (showFilePicker && newCursorPosition >= cursorPosition) {
       // Find the @ position before cursor
       let atPosition = -1;
       for (let i = newCursorPosition - 1; i >= 0; i--) {
@@ -582,6 +619,57 @@ const FloatingPromptInputInner = (
   const handleFilePickerClose = () => {
     setShowFilePicker(false);
     setFilePickerQuery("");
+    // Return focus to textarea
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
+  };
+
+  const handleAgentSelect = (agent: Agent) => {
+    const textarea = isExpanded ? expandedTextareaRef.current : textareaRef.current;
+    if (!textarea) return;
+
+    // Find the @ position before cursor
+    let atPosition = -1;
+    for (let i = cursorPosition - 1; i >= 0; i--) {
+      if (prompt[i] === '@') {
+        atPosition = i;
+        break;
+      }
+      // Stop if we hit whitespace (new word)
+      if (prompt[i] === ' ' || prompt[i] === '\n') {
+        break;
+      }
+    }
+
+    if (atPosition === -1) {
+      console.error('[FloatingPromptInput] @ position not found');
+      return;
+    }
+
+    // Replace the @ and partial query with the selected agent mention
+    const textareaEl = textarea;
+    const beforeAt = prompt.substring(0, atPosition);
+    const afterCursor = prompt.substring(cursorPosition);
+
+    // Use nickname or name for display
+    const agentMention = agent.nickname || agent.name;
+    const newPrompt = `${beforeAt}@${agentMention} ${afterCursor}`;
+    setPrompt(newPrompt);
+    setShowAgentPicker(false);
+    setAgentPickerQuery("");
+
+    // Focus back on textarea and set cursor position after the agent mention
+    setTimeout(() => {
+      textareaEl.focus();
+      const newCursorPos = beforeAt.length + agentMention.length + 2; // +2 for @ and space
+      textareaEl.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  const handleAgentPickerClose = () => {
+    setShowAgentPicker(false);
+    setAgentPickerQuery("");
     // Return focus to textarea
     setTimeout(() => {
       textareaRef.current?.focus();
@@ -714,6 +802,13 @@ const FloatingPromptInputInner = (
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (showAgentPicker && e.key === 'Escape') {
+      e.preventDefault();
+      setShowAgentPicker(false);
+      setAgentPickerQuery("");
+      return;
+    }
+
     if (showFilePicker && e.key === 'Escape') {
       e.preventDefault();
       setShowFilePicker(false);
@@ -1230,7 +1325,9 @@ const FloatingPromptInputInner = (
                   placeholder={
                     dragActive
                       ? "Drop images here..."
-                      : "Message Claude (@ for files, / for commands)..."
+                      : projectId
+                        ? "Message Claude (@ for members, / for commands)..."
+                        : "Message Claude (@ for files, / for commands)..."
                   }
                   disabled={disabled}
                   className={cn(
@@ -1296,6 +1393,18 @@ const FloatingPromptInputInner = (
                       onSelect={handleFileSelect}
                       onClose={handleFilePickerClose}
                       initialQuery={filePickerQuery}
+                    />
+                  )}
+                </AnimatePresence>
+
+                {/* Agent Picker for @ mentions */}
+                <AnimatePresence>
+                  {showAgentPicker && projectId && projectId.trim() && (
+                    <AgentPicker
+                      projectId={projectId.trim()}
+                      onSelect={handleAgentSelect}
+                      onClose={handleAgentPickerClose}
+                      initialQuery={agentPickerQuery}
                     />
                   )}
                 </AnimatePresence>

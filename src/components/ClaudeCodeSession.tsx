@@ -107,6 +107,7 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
   onProjectPathChange,
 }) => {
   const [projectPath] = useState(initialProjectPath || session?.project_path || "");
+  const [projectId] = useState(session?.project_id || "");
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1527,6 +1528,7 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
               isLoading={isLoading}
               disabled={!projectPath}
               projectPath={projectPath}
+              projectId={projectId}
               extraMenuItems={
                 <>
                   {effectiveSession && (

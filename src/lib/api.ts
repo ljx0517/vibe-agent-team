@@ -114,12 +114,23 @@ export interface ClaudeInstallation {
 // Agent API types
 export interface Agent {
   id?: number;
+  project_id?: string;
   name: string;
   icon: string;
+  color?: string;
+  nickname?: string;
+  gender?: string;
+  agent_type: string;
   system_prompt: string;
   default_task?: string;
   model: string;
-  hooks?: string; // JSON string of HooksConfiguration
+  tools?: string;
+  enable_file_read?: boolean;
+  enable_file_write?: boolean;
+  enable_network?: boolean;
+  hooks?: string;
+  settings?: string;
+  role_type?: string;
   created_at: string;
   updated_at: string;
 }
@@ -688,6 +699,20 @@ export const api = {
       return await apiCall<Agent[]>('list_agents');
     } catch (error) {
       console.error("Failed to list agents:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Lists agents for a specific project
+   * @param projectId - The project ID to get agents for
+   * @returns Promise resolving to array of agents in the project
+   */
+  async listProjectAgents(projectId: string): Promise<Agent[]> {
+    try {
+      return await apiCall<Agent[]>('list_project_agents', { projectId });
+    } catch (error) {
+      console.error("Failed to list project agents:", error);
       throw error;
     }
   },
