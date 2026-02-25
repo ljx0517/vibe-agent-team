@@ -1179,7 +1179,7 @@ const FloatingPromptInputInner = (
       {/* Fixed Position Input Bar */}
       <div
         className={cn(
-          "fixed bottom-0 left-0 right-0 z-40 bg-background/95 backdrop-blur-sm border-t border-border shadow-lg",
+          "bottom-0 left-0 right-0 z-40 backdrop-blur-sm border-t",
           dragActive && "ring-2 ring-primary ring-offset-2",
           className
         )}
