@@ -428,7 +428,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                   </motion.button>
                 </div>
               </div>
-              <div className="w-full flex-1 px-4 bg-red">
+              <div className="w-full flex-1 px-0 bg-red">
                 <FloatingPromptInput
                   onSend={handleSendMessage}
                   projectId={selectedProject?.project_id}
