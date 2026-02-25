@@ -383,7 +383,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
 
             {/* 下部分：输入工具栏 */}
             <div
-              className="flex-shrink-0 overflow-hidden flex flex-1 flex-col"
+              className="flex-shrink-0 overflow-visible flex flex-1 flex-col"
               style={{ height: `${100 - dividerPosition}%` }}
             >
               {/* 底部输入工具栏 */}
