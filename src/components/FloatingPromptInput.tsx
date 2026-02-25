@@ -367,7 +367,7 @@ const FloatingPromptInputInner = (
     if (textareaRef.current && !isExpanded) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      const newHeight = Math.min(Math.max(scrollHeight, 48), 240);
+      const newHeight = Math.max(scrollHeight, 48);
       setTextareaHeight(newHeight);
       textareaRef.current.style.height = `${newHeight}px`;
     }
@@ -469,8 +469,8 @@ const FloatingPromptInputInner = (
       // Reset height to auto to get the actual scrollHeight
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      // Set min height to 48px and max to 240px (about 10 lines)
-      const newHeight = Math.min(Math.max(scrollHeight, 48), 240);
+      // Set min height to 48px, no max height limit
+      const newHeight = Math.max(scrollHeight, 48);
       setTextareaHeight(newHeight);
       textareaRef.current.style.height = `${newHeight}px`;
     }
@@ -1178,7 +1178,7 @@ const FloatingPromptInputInner = (
       {/* Fixed Position Input Bar */}
       <div
         className={cn(
-          "bottom-0 left-0 right-0 z-40 backdrop-blur-sm border-t h-full",
+          "bottom-0 left-0 right-0 z-40 backdrop-blur-sm border-t",
           dragActive && "ring-2 ring-primary ring-offset-2",
           className
         )}
@@ -1187,7 +1187,7 @@ const FloatingPromptInputInner = (
         onDragOver={handleDrag}
         onDrop={handleDrop}
       >
-        <div className="container mx-auto h-full">
+        <div className="container mx-auto">
           {/* Image previews */}
           {embeddedImages.length > 0 && (
             <ImagePreview
@@ -1197,148 +1197,147 @@ const FloatingPromptInputInner = (
             />
           )}
 
-          <div className="p-3 h-full">
-            <div className="flex items-end gap-2 h-full">
+          <div className="p-3">
+            <div className="flex items-end gap-2">
               {/* Model & Thinking Mode Selectors - Left side, fixed at bottom */}
-              {/* 临时禁用 */}
-              {/*<div className="flex items-center gap-1 shrink-0 mb-1">*/}
-              {/*  <Popover*/}
-              {/*    trigger={*/}
-              {/*      <Tooltip>*/}
-              {/*        <TooltipTrigger asChild>*/}
-              {/*          <motion.div*/}
-              {/*            whileTap={{ scale: 0.97 }}*/}
-              {/*              transition={{ duration: 0.15 }}*/}
-              {/*            >*/}
-              {/*              <Button*/}
-              {/*                variant="ghost"*/}
-              {/*                size="sm"*/}
-              {/*                disabled={disabled}*/}
-              {/*                className="h-9 px-2 hover:bg-accent/50 gap-1"*/}
-              {/*              >*/}
-              {/*                <span className={selectedModelData.color}>*/}
-              {/*                  {selectedModelData.icon}*/}
-              {/*                </span>*/}
-              {/*                <span className="text-[10px] font-bold opacity-70">*/}
-              {/*                  {selectedModelData.shortName}*/}
-              {/*                </span>*/}
-              {/*                <ChevronUp className="h-3 w-3 ml-0.5 opacity-50" />*/}
-              {/*              </Button>*/}
-              {/*            </motion.div>*/}
-              {/*          </TooltipTrigger>*/}
-              {/*          <TooltipContent side="top">*/}
-              {/*            <p className="text-xs font-medium">{selectedModelData.name}</p>*/}
-              {/*            <p className="text-xs text-muted-foreground">{selectedModelData.description}</p>*/}
-              {/*          </TooltipContent>*/}
-              {/*        </Tooltip>*/}
-              {/*    }*/}
-              {/*  content={*/}
-              {/*    <div className="w-[300px] p-1">*/}
-              {/*      {MODELS.map((model) => (*/}
-              {/*        <button*/}
-              {/*          key={model.id}*/}
-              {/*          onClick={() => {*/}
-              {/*            setSelectedModel(model.id);*/}
-              {/*            setModelPickerOpen(false);*/}
-              {/*          }}*/}
-              {/*          className={cn(*/}
-              {/*            "w-full flex items-start gap-3 p-3 rounded-md transition-colors text-left",*/}
-              {/*            "hover:bg-accent",*/}
-              {/*            selectedModel === model.id && "bg-accent"*/}
-              {/*          )}*/}
-              {/*        >*/}
-              {/*          <div className="mt-0.5">*/}
-              {/*            <span className={model.color}>*/}
-              {/*              {model.icon}*/}
-              {/*            </span>*/}
-              {/*          </div>*/}
-              {/*          <div className="flex-1 space-y-1">*/}
-              {/*            <div className="font-medium text-sm">{model.name}</div>*/}
-              {/*            <div className="text-xs text-muted-foreground">*/}
-              {/*              {model.description}*/}
-              {/*            </div>*/}
-              {/*          </div>*/}
-              {/*        </button>*/}
-              {/*      ))}*/}
-              {/*    </div>*/}
-              {/*  }*/}
-              {/*  open={modelPickerOpen}*/}
-              {/*  onOpenChange={setModelPickerOpen}*/}
-              {/*  align="start"*/}
-              {/*  side="top"*/}
-              {/*/>*/}
+              <div className="flex items-center gap-1 shrink-0 mb-1">
+                <Popover
+                  trigger={
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <motion.div
+                          whileTap={{ scale: 0.97 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={disabled}
+                              className="h-9 px-2 hover:bg-accent/50 gap-1"
+                            >
+                              <span className={selectedModelData.color}>
+                                {selectedModelData.icon}
+                              </span>
+                              <span className="text-[10px] font-bold opacity-70">
+                                {selectedModelData.shortName}
+                              </span>
+                              <ChevronUp className="h-3 w-3 ml-0.5 opacity-50" />
+                            </Button>
+                          </motion.div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs font-medium">{selectedModelData.name}</p>
+                          <p className="text-xs text-muted-foreground">{selectedModelData.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                  }
+                content={
+                  <div className="w-[300px] p-1">
+                    {MODELS.map((model) => (
+                      <button
+                        key={model.id}
+                        onClick={() => {
+                          setSelectedModel(model.id);
+                          setModelPickerOpen(false);
+                        }}
+                        className={cn(
+                          "w-full flex items-start gap-3 p-3 rounded-md transition-colors text-left",
+                          "hover:bg-accent",
+                          selectedModel === model.id && "bg-accent"
+                        )}
+                      >
+                        <div className="mt-0.5">
+                          <span className={model.color}>
+                            {model.icon}
+                          </span>
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <div className="font-medium text-sm">{model.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {model.description}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                }
+                open={modelPickerOpen}
+                onOpenChange={setModelPickerOpen}
+                align="start"
+                side="top"
+              />
 
-              {/*  <Popover*/}
-              {/*    trigger={*/}
-              {/*      <Tooltip>*/}
-              {/*        <TooltipTrigger asChild>*/}
-              {/*          <motion.div*/}
-              {/*            whileTap={{ scale: 0.97 }}*/}
-              {/*              transition={{ duration: 0.15 }}*/}
-              {/*            >*/}
-              {/*              <Button*/}
-              {/*                variant="ghost"*/}
-              {/*                size="sm"*/}
-              {/*                disabled={disabled}*/}
-              {/*                className="h-9 px-2 hover:bg-accent/50 gap-1"*/}
-              {/*              >*/}
-              {/*                <span className={THINKING_MODES.find(m => m.id === selectedThinkingMode)?.color}>*/}
-              {/*                  {THINKING_MODES.find(m => m.id === selectedThinkingMode)?.icon}*/}
-              {/*                </span>*/}
-              {/*                <span className="text-[10px] font-semibold opacity-70">*/}
-              {/*                  {THINKING_MODES.find(m => m.id === selectedThinkingMode)?.shortName}*/}
-              {/*                </span>*/}
-              {/*                <ChevronUp className="h-3 w-3 ml-0.5 opacity-50" />*/}
-              {/*              </Button>*/}
-              {/*            </motion.div>*/}
-              {/*          </TooltipTrigger>*/}
-              {/*          <TooltipContent side="top">*/}
-              {/*            <p className="text-xs font-medium">Thinking: {THINKING_MODES.find(m => m.id === selectedThinkingMode)?.name || "Auto"}</p>*/}
-              {/*            <p className="text-xs text-muted-foreground">{THINKING_MODES.find(m => m.id === selectedThinkingMode)?.description}</p>*/}
-              {/*          </TooltipContent>*/}
-              {/*        </Tooltip>*/}
-              {/*    }*/}
-              {/*  content={*/}
-              {/*    <div className="w-[280px] p-1">*/}
-              {/*      {THINKING_MODES.map((mode) => (*/}
-              {/*        <button*/}
-              {/*          key={mode.id}*/}
-              {/*          onClick={() => {*/}
-              {/*            setSelectedThinkingMode(mode.id);*/}
-              {/*            setThinkingModePickerOpen(false);*/}
-              {/*          }}*/}
-              {/*          className={cn(*/}
-              {/*            "w-full flex items-start gap-3 p-3 rounded-md transition-colors text-left",*/}
-              {/*            "hover:bg-accent",*/}
-              {/*            selectedThinkingMode === mode.id && "bg-accent"*/}
-              {/*          )}*/}
-              {/*        >*/}
-              {/*          <span className={cn("mt-0.5", mode.color)}>*/}
-              {/*            {mode.icon}*/}
-              {/*          </span>*/}
-              {/*          <div className="flex-1 space-y-1">*/}
-              {/*            <div className="font-medium text-sm">*/}
-              {/*              {mode.name}*/}
-              {/*            </div>*/}
-              {/*            <div className="text-xs text-muted-foreground">*/}
-              {/*              {mode.description}*/}
-              {/*            </div>*/}
-              {/*          </div>*/}
-              {/*          <ThinkingModeIndicator level={mode.level} />*/}
-              {/*        </button>*/}
-              {/*      ))}*/}
-              {/*    </div>*/}
-              {/*  }*/}
-              {/*  open={thinkingModePickerOpen}*/}
-              {/*  onOpenChange={setThinkingModePickerOpen}*/}
-              {/*  align="start"*/}
-              {/*  side="top"*/}
-              {/*/>*/}
+                <Popover
+                  trigger={
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <motion.div
+                          whileTap={{ scale: 0.97 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={disabled}
+                              className="h-9 px-2 hover:bg-accent/50 gap-1"
+                            >
+                              <span className={THINKING_MODES.find(m => m.id === selectedThinkingMode)?.color}>
+                                {THINKING_MODES.find(m => m.id === selectedThinkingMode)?.icon}
+                              </span>
+                              <span className="text-[10px] font-semibold opacity-70">
+                                {THINKING_MODES.find(m => m.id === selectedThinkingMode)?.shortName}
+                              </span>
+                              <ChevronUp className="h-3 w-3 ml-0.5 opacity-50" />
+                            </Button>
+                          </motion.div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">
+                          <p className="text-xs font-medium">Thinking: {THINKING_MODES.find(m => m.id === selectedThinkingMode)?.name || "Auto"}</p>
+                          <p className="text-xs text-muted-foreground">{THINKING_MODES.find(m => m.id === selectedThinkingMode)?.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                  }
+                content={
+                  <div className="w-[280px] p-1">
+                    {THINKING_MODES.map((mode) => (
+                      <button
+                        key={mode.id}
+                        onClick={() => {
+                          setSelectedThinkingMode(mode.id);
+                          setThinkingModePickerOpen(false);
+                        }}
+                        className={cn(
+                          "w-full flex items-start gap-3 p-3 rounded-md transition-colors text-left",
+                          "hover:bg-accent",
+                          selectedThinkingMode === mode.id && "bg-accent"
+                        )}
+                      >
+                        <span className={cn("mt-0.5", mode.color)}>
+                          {mode.icon}
+                        </span>
+                        <div className="flex-1 space-y-1">
+                          <div className="font-medium text-sm">
+                            {mode.name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {mode.description}
+                          </div>
+                        </div>
+                        <ThinkingModeIndicator level={mode.level} />
+                      </button>
+                    ))}
+                  </div>
+                }
+                open={thinkingModePickerOpen}
+                onOpenChange={setThinkingModePickerOpen}
+                align="start"
+                side="top"
+              />
 
-              {/*</div>*/}
+              </div>
 
               {/* Prompt Input - Center */}
-              <div className="flex-1 relative h-full">
+              <div className="flex-1 relative">
                 <Textarea
                   ref={textareaRef}
                   value={prompt}
@@ -1356,13 +1355,12 @@ const FloatingPromptInputInner = (
                   }
                   disabled={disabled}
                   className={cn(
-                    "h-full bg-red-500 resize-none pr-20 pl-3 py-2.5 transition-all duration-150",
-                    dragActive && "border-primary",
-                    textareaHeight >= 240 && "overflow-y-auto scrollbar-thin"
+                    "resize-none pr-20 pl-3 py-2.5 transition-all duration-150",
+                    dragActive && "border-primary"
                   )}
                   style={{
                     height: `${textareaHeight}px`,
-                    overflowY: textareaHeight >= 240 ? 'auto' : 'hidden'
+                    overflowY: 'hidden'
                   }}
                 />
 
