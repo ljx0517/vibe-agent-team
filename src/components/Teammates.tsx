@@ -8,8 +8,12 @@ import {
   ArrowLeft,
   Loader2,
   ChevronDown,
+  Search,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,6 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
@@ -66,6 +77,46 @@ export const Teammates: React.FC<TeammatesProps> = ({ onBack, className }) => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [teammateToDelete, setTeammateToDelete] = useState<Agent | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Search, filter, and sort state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"name" | "created_at">("created_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // Role filter options
+  const roleOptions = [
+    { value: "all", label: "All Roles" },
+    { value: "teamlead", label: "Team Lead" },
+    { value: "teammate", label: "Teammate" },
+    { value: "general", label: "General" },
+  ];
+
+  // Sort options
+  const sortOptions = [
+    { value: "created_at", label: "Created Date" },
+    { value: "name", label: "Name" },
+  ];
+
+  // Filtered and sorted teammates
+  const filteredTeammates = teammates
+    .filter((teammate) => {
+      const matchesSearch =
+        !searchQuery ||
+        teammate.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        teammate.nickname?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesRole = roleFilter === "all" || teammate.role_type === roleFilter;
+      return matchesSearch && matchesRole;
+    })
+    .sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === "name") {
+        comparison = (a.name || "").localeCompare(b.name || "");
+      } else if (sortBy === "created_at") {
+        comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
 
   useEffect(() => {
     loadTeammates();
@@ -206,6 +257,70 @@ export const Teammates: React.FC<TeammatesProps> = ({ onBack, className }) => {
           </div>
         </motion.div>
 
+        {/* Search, Filter, Sort Toolbar */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+          className="mb-4 flex flex-wrap items-center gap-3"
+        >
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search members..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {/* Role Filter */}
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Role" />
+            </SelectTrigger>
+            <SelectContent>
+              {roleOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Sort By */}
+          <Select
+            value={sortBy}
+            onValueChange={(value: "name" | "created_at") => setSortBy(value)}
+          >
+            <SelectTrigger className="w-[140px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              {sortOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Sort Order Toggle */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+            title={sortOrder === "asc" ? "Ascending" : "Descending"}
+          >
+            {sortOrder === "asc" ? (
+              <ArrowUp className="h-4 w-4" />
+            ) : (
+              <ArrowDown className="h-4 w-4" />
+            )}
+          </Button>
+        </motion.div>
+
         {/* Error display */}
         {error && (
           <motion.div
@@ -231,22 +346,43 @@ export const Teammates: React.FC<TeammatesProps> = ({ onBack, className }) => {
                 <div className="flex items-center justify-center h-64">
                   <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : teammates.length === 0 ? (
+              ) : filteredTeammates.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-center">
                   <Users className="h-16 w-16 text-muted-foreground mb-4" />
-                  <h3 className="text-heading-4 mb-2">No members yet</h3>
-                  <p className="text-body-small text-muted-foreground mb-4">
-                    Add your first team member to get started
-                  </p>
-                  <Button onClick={() => setView("create")} size="default">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Member
-                  </Button>
+                  {teammates.length === 0 ? (
+                    <>
+                      <h3 className="text-heading-4 mb-2">No members yet</h3>
+                      <p className="text-body-small text-muted-foreground mb-4">
+                        Add your first team member to get started
+                      </p>
+                      <Button onClick={() => setView("create")} size="default">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Member
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-heading-4 mb-2">No results found</h3>
+                      <p className="text-body-small text-muted-foreground mb-4">
+                        Try adjusting your search or filter criteria
+                      </p>
+                      <Button
+                        onClick={() => {
+                          setSearchQuery("");
+                          setRoleFilter("all");
+                        }}
+                        size="default"
+                        variant="outline"
+                      >
+                        Clear Filters
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <AnimatePresence mode="popLayout">
-                    {teammates.map((teammate, index) => (
+                    {filteredTeammates.map((teammate, index) => (
                       <motion.div
                         key={teammate.id}
                         initial={{ opacity: 0, scale: 0.9 }}
