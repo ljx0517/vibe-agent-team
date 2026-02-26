@@ -371,64 +371,76 @@ const FloatingPromptInputInner = (
   useEffect(() => {
     // This effect runs only once on component mount to set up the listener.
     let lastDropTime = 0;
+    let unlistenDrop: (() => void) | null = null;
+    let unlistenEnter: (() => void) | null = null;
+    let unlistenLeave: (() => void) | null = null;
 
     const setupListener = async () => {
       try {
-        // If a listener from a previous mount/render is still around, clean it up.
+        // If listeners from a previous mount/render are still around, clean them up.
         if (unlistenDragDropRef.current) {
           unlistenDragDropRef.current();
         }
 
         const webview = getCurrentWebviewWindow();
-        unlistenDragDropRef.current = await webview.onDragDropEvent((event: any) => {
-          if (event.payload.type === 'enter' || event.payload.type === 'over') {
-            setDragActive(true);
-          } else if (event.payload.type === 'leave') {
-            setDragActive(false);
-          } else if (event.payload.type === 'drop' && event.payload.paths) {
-            setDragActive(false);
 
-            const currentTime = Date.now();
-            if (currentTime - lastDropTime < 200) {
-              // This debounce is crucial to handle the storm of drop events
-              // that Tauri/OS can fire for a single user action.
-              return;
-            }
-            lastDropTime = currentTime;
+        // Listen for drag enter/over events
+        const handleDragEnterOver = () => setDragActive(true);
+        const handleDragLeave = () => setDragActive(false);
 
-            const droppedPaths = event.payload.paths as string[];
-            const imagePaths = droppedPaths.filter(isImageFile);
+        // Listen for drop event
+        const handleDrop = async (event: { payload: { paths: string[] } }) => {
+          setDragActive(false);
 
-            if (imagePaths.length > 0) {
-              setPrompt(currentPrompt => {
-                const existingPaths = extractImagePaths(currentPrompt);
-                const newPaths = imagePaths.filter(p => !existingPaths.includes(p));
-
-                if (newPaths.length === 0) {
-                  return currentPrompt; // All dropped images are already in the prompt
-                }
-
-                // Wrap paths with spaces in quotes for clarity
-                const mentionsToAdd = newPaths.map(p => {
-                  // If path contains spaces, wrap in quotes
-                  if (p.includes(' ')) {
-                    return `@"${p}"`;
-                  }
-                  return `@${p}`;
-                }).join(' ');
-                const newPrompt = currentPrompt + (currentPrompt.endsWith(' ') || currentPrompt === '' ? '' : ' ') + mentionsToAdd + ' ';
-
-                setTimeout(() => {
-                  const target = isExpanded ? expandedTextareaRef.current : textareaRef.current;
-                  target?.focus();
-                  target?.setSelectionRange(newPrompt.length, newPrompt.length);
-                }, 0);
-
-                return newPrompt;
-              });
-            }
+          const currentTime = Date.now();
+          if (currentTime - lastDropTime < 200) {
+            return;
           }
-        });
+          lastDropTime = currentTime;
+
+          const droppedPaths = event.payload.paths;
+          const imagePaths = droppedPaths.filter(isImageFile);
+
+          if (imagePaths.length > 0) {
+            setPrompt(currentPrompt => {
+              const existingPaths = extractImagePaths(currentPrompt);
+              const newPaths = imagePaths.filter(p => !existingPaths.includes(p));
+
+              if (newPaths.length === 0) {
+                return currentPrompt;
+              }
+
+              const mentionsToAdd = newPaths.map(p => {
+                if (p.includes(' ')) {
+                  return `@"${p}"`;
+                }
+                return `@${p}`;
+              }).join(' ');
+              const newPrompt = currentPrompt + (currentPrompt.endsWith(' ') || currentPrompt === '' ? '' : ' ') + mentionsToAdd + ' ';
+
+              setTimeout(() => {
+                const target = isExpanded ? expandedTextareaRef.current : textareaRef.current;
+                target?.focus();
+                target?.setSelectionRange(newPrompt.length, newPrompt.length);
+              }, 0);
+
+              return newPrompt;
+            });
+          }
+        };
+
+        // Set up listeners using Tauri 2's listen API
+        unlistenEnter = await webview.listen('tauri://drag-enter', handleDragEnterOver);
+        unlistenEnter = await webview.listen('tauri://drag-over', handleDragEnterOver);
+        unlistenLeave = await webview.listen('tauri://drag-leave', handleDragLeave);
+        unlistenDrop = await webview.listen<{ paths: string[] }>('tauri://drop', handleDrop);
+
+        // Store cleanup function
+        unlistenDragDropRef.current = () => {
+          unlistenDrop?.();
+          unlistenEnter?.();
+          unlistenLeave?.();
+        };
       } catch (error) {
         console.error('Failed to set up Tauri drag-drop listener:', error);
       }
