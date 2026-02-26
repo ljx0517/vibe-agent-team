@@ -29,7 +29,7 @@ import {
 import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
-import { CreateAgent } from "./CreateAgent";
+import { CreateTeammate } from "./CreateTeammate";
 import { ICON_MAP } from "./IconPicker";
 
 interface TeammatesProps {
@@ -149,9 +149,9 @@ export const Teammates: React.FC<TeammatesProps> = ({ onBack, className }) => {
   // Handle Create/Edit view
   if (view === "create") {
     return (
-      <CreateAgent
+      <CreateTeammate
         onBack={() => setView("list")}
-        onAgentCreated={handleTeammateCreated}
+        onTeammateCreated={handleTeammateCreated}
         defaultRoleType="teamlead"
       />
     );
@@ -159,10 +159,10 @@ export const Teammates: React.FC<TeammatesProps> = ({ onBack, className }) => {
 
   if (view === "edit" && selectedTeammate) {
     return (
-      <CreateAgent
+      <CreateTeammate
         agent={selectedTeammate}
         onBack={() => setView("list")}
-        onAgentCreated={handleTeammateUpdated}
+        onTeammateCreated={handleTeammateUpdated}
         defaultRoleType="teamlead"
       />
     );
