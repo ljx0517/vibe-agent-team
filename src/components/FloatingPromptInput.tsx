@@ -1340,7 +1340,7 @@ const FloatingPromptInputInner = (
                   }
                   disabled={disabled}
                   className={cn(
-                    "resize-none pr-20 pl-3 py-2.5 transition-all duration-150 h-full",
+                    "resize-none pr-20 pl-3 py-2.5 transition-all duration-150 h-full bg-white border-none",
                     dragActive && "border-primary"
                   )}
                 />
