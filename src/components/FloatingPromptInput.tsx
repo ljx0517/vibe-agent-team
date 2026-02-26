@@ -1200,7 +1200,7 @@ const FloatingPromptInputInner = (
           <div className="p-3">
             <div className="flex items-end gap-2">
               {/* Model & Thinking Mode Selectors - Left side, fixed at bottom */}
-              <div className="flex items-center gap-1 shrink-0 mb-1">
+              <div className="flex items-center gap-1 shrink-0 mb-1 hidden">
                 <Popover
                   trigger={
                     <Tooltip>
