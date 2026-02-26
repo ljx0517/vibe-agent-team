@@ -362,15 +362,9 @@ const FloatingPromptInputInner = (
     const imagePaths = extractImagePaths(prompt);
     console.log('[useEffect] Setting embeddedImages to:', imagePaths);
     setEmbeddedImages(imagePaths);
-    
-    // Auto-resize on prompt change (handles paste, programmatic changes, etc.)
-    if (textareaRef.current && !isExpanded) {
-      textareaRef.current.style.height = 'auto';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      const newHeight = Math.max(scrollHeight, 48);
-      setTextareaHeight(newHeight);
-      textareaRef.current.style.height = `${newHeight}px`;
-    }
+
+    // Auto-resize is disabled - height is now controlled by h-full CSS class
+    // This effect still runs to keep embeddedImages in sync
   }, [prompt, projectPath, isExpanded]);
 
   // Set up Tauri drag-drop event listener
@@ -463,17 +457,8 @@ const FloatingPromptInputInner = (
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
     const newCursorPosition = e.target.selectionStart || 0;
-    
-    // Auto-resize textarea based on content
-    if (textareaRef.current && !isExpanded) {
-      // Reset height to auto to get the actual scrollHeight
-      textareaRef.current.style.height = 'auto';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      // Set min height to 48px, no max height limit
-      const newHeight = Math.max(scrollHeight, 48);
-      setTextareaHeight(newHeight);
-      textareaRef.current.style.height = `${newHeight}px`;
-    }
+
+    // Height is now controlled by h-full CSS class, no auto-resize needed
 
     // Check if / was just typed at the beginning of input or after whitespace
     if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === '/') {
@@ -809,7 +794,7 @@ const FloatingPromptInputInner = (
         }
         setPrompt("");
         setEmbeddedImages([]);
-        setTextareaHeight(48);
+        // Height is now controlled by h-full, no need to reset
         return;
       }
 
@@ -822,7 +807,7 @@ const FloatingPromptInputInner = (
       onSend(finalPrompt, selectedModel);
       setPrompt("");
       setEmbeddedImages([]);
-      setTextareaHeight(48); // Reset height after sending
+      // Height is controlled by h-full, no reset needed
     }
   };
 
@@ -1178,7 +1163,7 @@ const FloatingPromptInputInner = (
       {/* Fixed Position Input Bar */}
       <div
         className={cn(
-          "bottom-0 left-0 right-0 z-40 backdrop-blur-sm border-t",
+          "bottom-0 left-0 right-0 z-40 backdrop-blur-sm border-t h-full",
           dragActive && "ring-2 ring-primary ring-offset-2",
           className
         )}
@@ -1187,7 +1172,7 @@ const FloatingPromptInputInner = (
         onDragOver={handleDrag}
         onDrop={handleDrop}
       >
-        <div className="container mx-auto">
+        <div className="container mx-auto h-full">
           {/* Image previews */}
           {embeddedImages.length > 0 && (
             <ImagePreview
@@ -1197,8 +1182,8 @@ const FloatingPromptInputInner = (
             />
           )}
 
-          <div className="p-3">
-            <div className="flex items-end gap-2">
+          <div className="p-3 h-full">
+            <div className="flex items-end gap-2 h-full">
               {/* Model & Thinking Mode Selectors - Left side, fixed at bottom */}
               <div className="flex items-center gap-1 shrink-0 mb-1 hidden">
                 <Popover
@@ -1337,7 +1322,7 @@ const FloatingPromptInputInner = (
               </div>
 
               {/* Prompt Input - Center */}
-              <div className="flex-1 relative">
+              <div className="flex-1 relative h-full">
                 <Textarea
                   ref={textareaRef}
                   value={prompt}
@@ -1355,13 +1340,9 @@ const FloatingPromptInputInner = (
                   }
                   disabled={disabled}
                   className={cn(
-                    "resize-none pr-20 pl-3 py-2.5 transition-all duration-150",
+                    "resize-none pr-20 pl-3 py-2.5 transition-all duration-150 h-full",
                     dragActive && "border-primary"
                   )}
-                  style={{
-                    height: `${textareaHeight}px`,
-                    overflowY: 'hidden'
-                  }}
                 />
 
                 {/* Action buttons inside input - fixed at bottom right */}

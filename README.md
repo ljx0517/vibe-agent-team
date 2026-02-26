@@ -7,7 +7,7 @@
   <p>
     <strong>A powerful GUI app and Toolkit for Claude Code</strong>
   </p>
-  <p>
+  <pflex items-center gap-1 shrink-0 mb-1>
     <strong>Create custom agents, manage interactive Claude Code sessions, run secure background agents, and more.</strong>
   </p>
   
