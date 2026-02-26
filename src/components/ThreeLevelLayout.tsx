@@ -49,7 +49,7 @@ interface NavItem {
 const globalNavItems: NavItem[] = [
   { id: 'projects', label: '项目', icon: <FolderOpen className="w-5 h-5" /> },
   { id: 'documents', label: '文档', icon: <FileText className="w-5 h-5" /> },
-  { id: 'team', label: '团队', icon: <Users className="w-5 h-5" /> },
+  { id: 'team', label: '成员管理', icon: <Users className="w-5 h-5" /> },
   { id: 'analytics', label: '分析', icon: <BarChart className="w-5 h-5" /> },
   { id: 'messages', label: '消息', icon: <MessageSquare className="w-5 h-5" /> },
   { id: 'settings', label: '设置', icon: <Settings className="w-5 h-5" /> },
@@ -461,8 +461,10 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
           <motion.button whileHover={{ scale: 1.1 }} className="w-7 h-7 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
             <Search className="w-3.5 h-3.5" />
           </motion.button>
-          <motion.button whileHover={{ scale: 1.1 }} className="w-7 h-7 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
-            <MoreVertical className="w-3.5 h-3.5" />
+          <motion.button whileHover={{ scale: 1.1 }}
+                         title="添加成员"
+                         className="w-7 h-7 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
+            <Plus className="w-3.5 h-3.5" />
           </motion.button>
         </div>
       </div>
