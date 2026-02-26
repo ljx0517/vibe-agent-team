@@ -1,9 +1,259 @@
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::process::{Child, ChildStdin};
 use uuid::Uuid;
+
+/// Represents a multimodal content block for Claude messages
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ContentBlock {
+    /// Plain text content
+    Text(TextContent),
+    /// Image content
+    Image(ImageContent),
+}
+
+/// Text content block
+#[derive(Debug, Clone, Serialize)]
+pub struct TextContent {
+    #[serde(rename = "type")]
+    pub block_type: String,
+    pub text: String,
+}
+
+/// Image content block
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageContent {
+    #[serde(rename = "type")]
+    pub block_type: String,
+    pub source: ImageSource,
+}
+
+/// Image source (base64 encoded)
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String,
+    pub media_type: String,
+    pub data: String,
+}
+
+/// Parsed user input with text and images separated
+pub struct ParsedInput {
+    pub text_parts: Vec<String>,
+    pub images: Vec<String>, // base64 data URLs or file paths
+}
+
+/// Parse user input to extract text and image references
+/// Supported formats:
+/// - @"data:image/png;base64,..." - base64 encoded images
+/// - @"/path/to/image.png" - file paths
+pub fn parse_multimodal_input(input: &str) -> ParsedInput {
+    let mut text_parts = Vec::new();
+    let mut images = Vec::new();
+
+    // Regex to match @"..." patterns (quoted strings)
+    let quoted_regex = Regex::new(r#"@"([^"]+)""#).unwrap();
+
+    let mut last_end = 0;
+
+    for mat in quoted_regex.find_iter(input) {
+        // Add text before the match
+        if mat.start() > last_end {
+            let text_before = &input[last_end..mat.start()].trim();
+            if !text_before.is_empty() {
+                text_parts.push(text_before.to_string());
+            }
+        }
+
+        // Extract the content inside @"..."
+        let matched = mat.as_str();
+        if matched.len() >= 4 {
+            let content = &matched[2..matched.len() - 1]; // Remove @" and "
+
+            // Check if it's an image (data URL or file with image extension)
+            if content.starts_with("data:image/") {
+                // Already a data URL, use as-is
+                images.push(content.to_string());
+            } else {
+                // Check if it's a file path with image extension
+                let lower = content.to_lowercase();
+                if lower.ends_with(".png")
+                    || lower.ends_with(".jpg")
+                    || lower.ends_with(".jpeg")
+                    || lower.ends_with(".gif")
+                    || lower.ends_with(".svg")
+                    || lower.ends_with(".webp")
+                    || lower.ends_with(".ico")
+                    || lower.ends_with(".bmp")
+                {
+                    // For file paths, we'll need to read and encode
+                    // For now, store the path and handle it later
+                    images.push(content.to_string());
+                } else {
+                    // Not an image, treat as regular text
+                    text_parts.push(content.to_string());
+                }
+            }
+        }
+
+        last_end = mat.end();
+    }
+
+    // Add remaining text after last match
+    if last_end < input.len() {
+        let text_after = input[last_end..].trim();
+        if !text_after.is_empty() {
+            text_parts.push(text_after.to_string());
+        }
+    }
+
+    // If no @"..." patterns found, treat entire input as text
+    if text_parts.is_empty() && images.is_empty() {
+        text_parts.push(input.to_string());
+    }
+
+    ParsedInput { text_parts, images }
+}
+
+/// Build the message JSON for Claude CLI from parsed input
+pub fn build_claude_message(parsed: &ParsedInput) -> serde_json::Value {
+    let mut content: Vec<ContentBlock> = Vec::new();
+
+    // Add text parts
+    for text in &parsed.text_parts {
+        if !text.trim().is_empty() {
+            content.push(ContentBlock::Text(TextContent {
+                block_type: "text".to_string(),
+                text: text.trim().to_string(),
+            }));
+        }
+    }
+
+    // Add image parts
+    for image in &parsed.images {
+        if image.starts_with("data:") {
+            // Already a data URL, extract media type and data
+            if let Some(media_type) = extract_media_type(image) {
+                let data = extract_base64_data(image);
+                content.push(ContentBlock::Image(ImageContent {
+                    block_type: "image".to_string(),
+                    source: ImageSource {
+                        source_type: "base64".to_string(),
+                        media_type,
+                        data,
+                    },
+                }));
+            }
+        } else {
+            // File path - read and encode the image
+            if let Ok(data) = std::fs::read(image) {
+                let media_type = detect_media_type(image);
+                let base64_data = base64_encode(&data);
+                content.push(ContentBlock::Image(ImageContent {
+                    block_type: "image".to_string(),
+                    source: ImageSource {
+                        source_type: "base64".to_string(),
+                        media_type,
+                        data: base64_data,
+                    },
+                }));
+            }
+        }
+    }
+
+    // If only text, use simple string format
+    if content.len() == 1 {
+        if let ContentBlock::Text(t) = &content[0] {
+            return serde_json::json!({
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": t.text.clone()
+                }
+            });
+        }
+    }
+
+    serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content
+        }
+    })
+}
+
+/// Extract media type from data URL
+fn extract_media_type(data_url: &str) -> Option<String> {
+    data_url
+        .strip_prefix("data:")
+        .and_then(|s| s.split(';').next())
+        .map(|s| s.to_string())
+}
+
+/// Extract base64 data from data URL
+fn extract_base64_data(data_url: &str) -> String {
+    data_url
+        .split(',')
+        .nth(1)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Detect media type from file extension
+fn detect_media_type(path: &str) -> String {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".png") {
+        "image/png".to_string()
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg".to_string()
+    } else if lower.ends_with(".gif") {
+        "image/gif".to_string()
+    } else if lower.ends_with(".webp") {
+        "image/webp".to_string()
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml".to_string()
+    } else if lower.ends_with(".ico") {
+        "image/x-icon".to_string()
+    } else if lower.ends_with(".bmp") {
+        "image/bmp".to_string()
+    } else {
+        "image/png".to_string() // Default
+    }
+}
+
+/// Simple base64 encoding
+fn base64_encode(data: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+
+        result.push(ALPHABET[b0 >> 2] as char);
+        result.push(ALPHABET[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
+
+        if chunk.len() > 1 {
+            result.push(ALPHABET[((b1 & 0x0f) << 2) | (b2 >> 6)] as char);
+        } else {
+            result.push('=');
+        }
+
+        if chunk.len() > 2 {
+            result.push(ALPHABET[b2 & 0x3f] as char);
+        } else {
+            result.push('=');
+        }
+    }
+
+    result
+}
 
 /// Type of process being tracked
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,13 +836,16 @@ impl ProcessRegistry {
 
         if let Some(mut stdin) = stdin {
             use tokio::io::AsyncWriteExt;
-            let msg = serde_json::json!({
-                "type": "user",
-                "message": {
-                    "role": "user",
-                    "content": content
-                }
-            });
+
+            // Parse multimodal input (text + images)
+            let parsed = parse_multimodal_input(content);
+
+            // Build the appropriate message format
+            let msg = build_claude_message(&parsed);
+
+            log::info!("Sending multimodal message to Claude: {} text parts, {} images",
+                parsed.text_parts.len(), parsed.images.len());
+
             stdin.write_all(msg.to_string().as_bytes()).await.map_err(|e| e.to_string())?;
             stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
             stdin.flush().await.map_err(|e| e.to_string())?;
