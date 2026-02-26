@@ -59,8 +59,8 @@
     "core:window:allow-close",
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
-    "core:webview:allow-start-dragging",
-    "core:webview:allow-set-focus",
-    "core:webview:allow-is-focused"
+    "core:webview:default",
+    "core:webview:allow-set-webview-focus",
+    "core:webview:allow-webview-show"
   ]
 }
