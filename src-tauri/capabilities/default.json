@@ -5,6 +5,9 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
@@ -52,9 +55,12 @@
     "updater:default",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
-    "core:window:allow-unmaximize", 
+    "core:window:allow-unmaximize",
     "core:window:allow-close",
     "core:window:allow-is-maximized",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "core:webview:allow-start-dragging",
+    "core:webview:allow-set-focus",
+    "core:webview:allow-is-focused"
   ]
 }
