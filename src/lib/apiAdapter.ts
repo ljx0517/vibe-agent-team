@@ -22,6 +22,14 @@ declare global {
 let isTauriEnvironment: boolean | null = null;
 
 /**
+ * Force refresh environment detection (useful after Tauri initializes)
+ */
+export function refreshEnvironmentDetection(): boolean {
+  isTauriEnvironment = null;
+  return detectEnvironment();
+}
+
+/**
  * Detect if we're running in Tauri environment
  */
 function detectEnvironment(): boolean {
@@ -155,9 +163,16 @@ export async function apiCall<T>(command: string, params?: any): Promise<T> {
     // Tauri environment - try invoke
     console.log(`[Tauri] Calling: ${command}`, params);
     try {
-      return await invoke<T>(command, params);
+      const result = await invoke<T>(command, params);
+      console.log(`[Tauri] Success: ${command}`, result);
+      return result;
     } catch (error) {
-      console.warn(`[Tauri] invoke failed, falling back to web mode:`, error);
+      console.error(`[Tauri] ❌ invoke failed for "${command}":`, error);
+      console.error(`[Tauri] Error details:`, {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack,
+      });
       // Fall through to web mode only if not a tauri-only command
       if (isTauriOnly) {
         throw error;
