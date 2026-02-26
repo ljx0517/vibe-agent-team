@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Save, Loader2, ChevronDown, Zap, AlertCircle } from "lucide-react";
+import { ArrowLeft, Save, Loader2, ChevronDown, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,7 +54,6 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
   const [selectedIcon, setSelectedIcon] = useState<AgentIconName>((agent?.icon as AgentIconName) || "bot");
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt || "");
   const [defaultTask, setDefaultTask] = useState(agent?.default_task || "");
-  const [model, setModel] = useState(agent?.model || "sonnet");
   const [roleType, setRoleType] = useState(agent?.role_type || defaultRoleType || "general");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,8 +83,7 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
           name,
           selectedIcon,
           systemPrompt,
-          defaultTask || undefined,
-          model
+          defaultTask || undefined
         );
       } else {
         await api.createAgent(
@@ -93,7 +91,6 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
           selectedIcon,
           systemPrompt,
           defaultTask || undefined,
-          model,
           undefined,
           undefined,
           undefined,
@@ -115,11 +112,10 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
   };
 
   const handleBack = () => {
-    if ((name !== (agent?.name || "") || 
-         selectedIcon !== (agent?.icon || "bot") || 
+    if ((name !== (agent?.name || "") ||
+         selectedIcon !== (agent?.icon || "bot") ||
          systemPrompt !== (agent?.system_prompt || "") ||
-         defaultTask !== (agent?.default_task || "") ||
-         model !== (agent?.model || "sonnet")) && 
+         defaultTask !== (agent?.default_task || "")) &&
         !confirm("You have unsaved changes. Are you sure you want to leave?")) {
       return;
     }
@@ -243,60 +239,6 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
                     </div>
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   </motion.div>
-                </div>
-              </div>
-
-              {/* Model Selection */}
-              <div className="space-y-2 mt-4">
-                <Label className="text-caption text-muted-foreground">Model</Label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <motion.button
-                    type="button"
-                    onClick={() => setModel("sonnet")}
-                    whileTap={{ scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className={cn(
-                      "flex-1 px-4 py-3 rounded-md border transition-all",
-                      model === "sonnet" 
-                        ? "border-primary bg-primary/10 text-primary" 
-                        : "border-border hover:border-primary/50 hover:bg-accent"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Zap className={cn(
-                        "h-4 w-4",
-                        model === "sonnet" ? "text-primary" : "text-muted-foreground"
-                      )} />
-                      <div className="text-left">
-                        <div className="text-body-small font-medium">Claude 4 Sonnet</div>
-                        <div className="text-caption text-muted-foreground">Faster, efficient for most tasks</div>
-                      </div>
-                    </div>
-                  </motion.button>
-                  
-                  <motion.button
-                    type="button"
-                    onClick={() => setModel("opus")}
-                    whileTap={{ scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className={cn(
-                      "flex-1 px-4 py-3 rounded-md border transition-all",
-                      model === "opus" 
-                        ? "border-primary bg-primary/10 text-primary" 
-                        : "border-border hover:border-primary/50 hover:bg-accent"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <Zap className={cn(
-                        "h-4 w-4",
-                        model === "opus" ? "text-primary" : "text-muted-foreground"
-                      )} />
-                      <div className="text-left">
-                        <div className="text-body-small font-medium">Claude 4 Opus</div>
-                        <div className="text-caption text-muted-foreground">More capable, better for complex tasks</div>
-                      </div>
-                    </div>
-                  </motion.button>
                 </div>
               </div>
 
