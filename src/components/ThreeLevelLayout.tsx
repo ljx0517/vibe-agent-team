@@ -11,11 +11,20 @@ import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
 import { FloatingPromptInput } from './FloatingPromptInput';
 import { Teammates } from './Teammates';
-import { api } from '@/lib/api';
+import { api, type Agent } from '@/lib/api';
 // 项目进度类型
 interface ProjectProgress {
   step: string;
@@ -91,6 +100,37 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const [dividerPosition, setDividerPosition] = useState(70); // 默认上部分70%
   const [isDragging, setIsDragging] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [availableMembers, setAvailableMembers] = useState<Agent[]>([]);
+  const [loadingAvailableMembers, setLoadingAvailableMembers] = useState(false);
+
+  // 加载可选成员（排除 teamlead 角色）
+  const loadAvailableMembers = async () => {
+    try {
+      setLoadingAvailableMembers(true);
+      const allAgents = await api.listAgents();
+      // 过滤掉 teamlead 角色
+      const filtered = allAgents.filter(agent => agent.role_type !== 'teamlead');
+      setAvailableMembers(filtered);
+    } catch (error) {
+      console.error('Failed to load available members:', error);
+    } finally {
+      setLoadingAvailableMembers(false);
+    }
+  };
+
+  // 点击添加成员按钮
+  const handleAddMemberClick = () => {
+    loadAvailableMembers();
+    setShowAddMemberModal(true);
+  };
+
+  // 选择成员（TODO: 调用后端 API 添加到项目）
+  const handleSelectMember = async (agent: Agent) => {
+    console.log('Selected member:', agent);
+    // TODO: 调用后端 API 添加成员到项目
+    setShowAddMemberModal(false);
+  };
 
   // 发送消息处理函数
   const handleSendMessage = async (text: string, _model: "sonnet" | "opus") => {
@@ -464,6 +504,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
           </motion.button>
           <motion.button whileHover={{ scale: 1.1 }}
                          title="添加成员"
+                         onClick={handleAddMemberClick}
                          className="w-7 h-7 rounded flex items-center justify-center text-gray-400 hover:bg-gray-100">
             <Plus className="w-3.5 h-3.5" />
           </motion.button>
@@ -491,6 +532,58 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
         )}
       </ScrollArea>
     </div>
+  );
+
+  // 添加成员 Modal
+  const renderAddMemberModal = () => (
+    <Dialog open={showAddMemberModal} onOpenChange={setShowAddMemberModal}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>添加项目成员</DialogTitle>
+          <DialogDescription>
+            选择要添加到项目的成员（不包括 Team Lead）
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[300px] overflow-y-auto py-2">
+          {loadingAvailableMembers ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : availableMembers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p>暂无可添加的成员</p>
+              <p className="text-xs mt-1">所有成员已加入或无可用成员</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {availableMembers.map((agent) => (
+                <div
+                  key={agent.id}
+                  onClick={() => handleSelectMember(agent)}
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors"
+                >
+                  <div className="w-10 h-10 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                    {agent.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">{agent.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {agent.role_type || 'general'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowAddMemberModal(false)}>
+            取消
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 
   // 渲染设置页面 - 使用 SettingsComponent 内部的 Tabs 作为二级导航
@@ -535,6 +628,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
         isLoading={isCreatingProject}
         onLoadingChange={onCreatingProjectChange}
       />
+      {renderAddMemberModal()}
       <div className={cn("flex h-full", className)}>
         {/* 第一栏：全局导航 */}
         {renderGlobalNav()}
