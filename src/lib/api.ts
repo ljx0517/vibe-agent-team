@@ -2017,10 +2017,10 @@ export const api = {
   ): Promise<Message> {
     try {
       return await apiCall<Message>("send_message", {
-        project_id: projectId,
+        projectId,
         content,
         sender,
-        sender_name: senderName,
+        senderName,
       });
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -2035,7 +2035,7 @@ export const api = {
    */
   async getMessages(projectId: string): Promise<Message[]> {
     try {
-      return await apiCall<Message[]>("get_messages", { project_id: projectId });
+      return await apiCall<Message[]>("get_messages", { projectId });
     } catch (error) {
       console.error("Failed to get messages:", error);
       throw error;
@@ -2058,10 +2058,10 @@ export const api = {
   ): Promise<Message> {
     try {
       return await apiCall<Message>("save_message_response", {
-        project_id: projectId,
-        run_id: runId,
+        projectId,
+        runId,
         content,
-        message_type: messageType,
+        messageType,
       });
     } catch (error) {
       console.error("Failed to save message response:", error);
