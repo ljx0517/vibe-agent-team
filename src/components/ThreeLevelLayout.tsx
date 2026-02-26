@@ -5,16 +5,17 @@ import {
   FolderOpen, FileText, Users, BarChart, MessageSquare, Settings,
   Search, Plus, MoreVertical, UserPlus, Smile, Scissors,
   Image, FileVideo, ListTodo, FolderPlus, MoreHorizontal,
-  Zap, BookOpen, Loader2, Bot
+  Zap, BookOpen
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
 import { FloatingPromptInput } from './FloatingPromptInput';
-import { api, type Agent } from '@/lib/api';
+import { Teammates } from './Teammates';
+import { api } from '@/lib/api';
 // 项目进度类型
 interface ProjectProgress {
   step: string;
@@ -90,28 +91,6 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const [dividerPosition, setDividerPosition] = useState(70); // 默认上部分70%
   const [isDragging, setIsDragging] = useState(false);
   const [isSending, setIsSending] = useState(false);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(false);
-
-  // 加载系统 agents
-  const loadAgents = async () => {
-    try {
-      setAgentsLoading(true);
-      const agentsList = await api.listAgents();
-      setAgents(agentsList);
-    } catch (error) {
-      console.error('Failed to load agents:', error);
-    } finally {
-      setAgentsLoading(false);
-    }
-  };
-
-  // 当选中 team 导航时加载 agents
-  useEffect(() => {
-    if (selectedNav === 'team') {
-      loadAgents();
-    }
-  }, [selectedNav]);
 
   // 发送消息处理函数
   const handleSendMessage = async (text: string, _model: "sonnet" | "opus") => {
@@ -523,71 +502,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     </div>
   );
 
-  // 渲染成员管理页面 - 显示系统内所有 agents
+  // 渲染成员管理页面 - 使用 Teammates 组件
   const renderTeamPage = () => (
-    <div className="flex-1 bg-white overflow-hidden flex flex-col">
-      {/* 页面头部 */}
-      <div className="p-6 border-b">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSelectedNav('projects')}
-            className="h-8 w-8"
-          >
-            <FolderOpen className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">成员管理</h1>
-            <p className="text-sm text-muted-foreground">
-              系统内所有 Agent 成员
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Agent 列表 */}
-      <ScrollArea className="flex-1">
-        <div className="p-6">
-          {agentsLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : agents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <Bot className="w-12 h-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">暂无 Agent 成员</h3>
-              <p className="text-sm text-muted-foreground">
-                创建您的第一个 Agent 成员
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {agents.map((agent) => (
-                <div
-                  key={agent.id}
-                  className="p-4 border rounded-lg hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Bot className="w-5 h-5 text-primary" />
-                      <h3 className="font-semibold">{agent.name}</h3>
-                    </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                    {agent.system_prompt?.slice(0, 100) || '暂无描述'}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
-                      创建于 {new Date(agent.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+    <div className="flex-1 bg-white overflow-hidden">
+      <Teammates
+        onBack={() => setSelectedNav('projects')}
+        className="h-full"
+      />
     </div>
   );
 
