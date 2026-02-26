@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings, Minus, Square, X, Bot, BarChart3, FileText, Network, Info, MoreVertical, ChevronDown, Shield, Terminal, HardDrive, Link, Sliders, Code, Database } from 'lucide-react';
+import { Settings, Minus, Square, X, Bot, BarChart3, FileText, Network, Info, MoreVertical, ChevronDown, Shield, Terminal, HardDrive, Link, Sliders, Code, Database, Users } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 
@@ -21,6 +21,7 @@ export type SettingsTabId = typeof SETTINGS_TABS[number]['id'];
 interface CustomTitlebarProps {
   onSettingsClick?: (tabId?: SettingsTabId) => void;
   onAgentsClick?: () => void;
+  onTeammatesClick?: () => void;
   onUsageClick?: () => void;
   onClaudeClick?: () => void;
   onMCPClick?: () => void;
@@ -30,6 +31,7 @@ interface CustomTitlebarProps {
 export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   onSettingsClick,
   onAgentsClick,
+  onTeammatesClick,
   onUsageClick,
   onClaudeClick,
   onMCPClick,
@@ -170,7 +172,20 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
               </motion.button>
             </TooltipSimple>
           )}
-          
+
+          {onTeammatesClick && (
+            <TooltipSimple content="Members" side="bottom">
+              <motion.button
+                onClick={onTeammatesClick}
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: 0.15 }}
+                className="p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors tauri-no-drag"
+              >
+                <Users size={16} />
+              </motion.button>
+            </TooltipSimple>
+          )}
+
           {onUsageClick && (
             <TooltipSimple content="Usage Dashboard" side="bottom">
               <motion.button

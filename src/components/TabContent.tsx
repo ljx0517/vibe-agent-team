@@ -15,6 +15,7 @@ const AgentRunOutputViewer = lazy(() => import('@/components/AgentRunOutputViewe
 const AgentExecution = lazy(() => import('@/components/AgentExecution').then(m => ({ default: m.AgentExecution })));
 const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
 const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
+const Teammates = lazy(() => import('@/components/Teammates').then(m => ({ default: m.Teammates })));
 const UsageDashboard = lazy(() => import('@/components/UsageDashboard').then(m => ({ default: m.UsageDashboard })));
 const MCPManager = lazy(() => import('@/components/MCPManager').then(m => ({ default: m.MCPManager })));
 const Settings = lazy(() => import('@/components/Settings').then(m => ({ default: m.Settings })));
@@ -292,7 +293,14 @@ const TabPanel: React.FC<TabPanelProps> = ({ tab, isActive }) => {
             <Agents />
           </div>
         );
-      
+
+      case 'teammates':
+        return (
+          <div className="h-full">
+            <Teammates onBack={() => {}} />
+          </div>
+        );
+
       case 'usage':
         return (
           <div className="h-full">

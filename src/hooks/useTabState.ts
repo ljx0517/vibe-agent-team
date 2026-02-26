@@ -18,6 +18,7 @@ interface UseTabStateReturn {
   createAgentExecutionTab: (agent: any, tabId: string, projectPath?: string) => string;
   createProjectsTab: () => string | null;
   createAgentsTab: () => string | null;
+  createTeammatesTab: () => string | null;
   createUsageTab: () => string | null;
   createMCPTab: () => string | null;
   createSettingsTab: (settingsTabId?: typeof SETTINGS_TABS[number]['id']) => string | null;
@@ -118,6 +119,23 @@ export const useTabState = (): UseTabStateReturn => {
       status: 'idle',
       hasUnsavedChanges: false,
       icon: 'bot'
+    });
+  }, [addTab, tabs, setActiveTab]);
+
+  const createTeammatesTab = useCallback((): string | null => {
+    // Check if teammates tab already exists (singleton)
+    const existingTab = tabs.find(tab => tab.type === 'teammates');
+    if (existingTab) {
+      setActiveTab(existingTab.id);
+      return existingTab.id;
+    }
+
+    return addTab({
+      type: 'teammates',
+      title: 'Members',
+      status: 'idle',
+      hasUnsavedChanges: false,
+      icon: 'users'
     });
   }, [addTab, tabs, setActiveTab]);
 
@@ -343,6 +361,7 @@ export const useTabState = (): UseTabStateReturn => {
     createAgentExecutionTab,
     createProjectsTab,
     createAgentsTab,
+    createTeammatesTab,
     createUsageTab,
     createMCPTab,
     createSettingsTab,

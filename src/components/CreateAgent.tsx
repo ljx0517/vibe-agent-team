@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Toast, ToastContainer } from "@/components/ui/toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import MDEditor from "@uiw/react-md-editor";
@@ -30,6 +31,10 @@ interface CreateAgentProps {
    * Optional className for styling
    */
   className?: string;
+  /**
+   * Default role type for new agent (e.g., 'teamlead', 'general')
+   */
+  defaultRoleType?: string;
 }
 
 /**
@@ -43,12 +48,14 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
   onBack,
   onAgentCreated,
   className,
+  defaultRoleType,
 }) => {
   const [name, setName] = useState(agent?.name || "");
   const [selectedIcon, setSelectedIcon] = useState<AgentIconName>((agent?.icon as AgentIconName) || "bot");
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt || "");
   const [defaultTask, setDefaultTask] = useState(agent?.default_task || "");
   const [model, setModel] = useState(agent?.model || "sonnet");
+  const [roleType, setRoleType] = useState(agent?.role_type || defaultRoleType || "general");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -70,23 +77,27 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
     try {
       setSaving(true);
       setError(null);
-      
+
       if (isEditMode && agent.id) {
         await api.updateAgent(
-          agent.id, 
-          name, 
-          selectedIcon, 
-          systemPrompt, 
-          defaultTask || undefined, 
+          agent.id,
+          name,
+          selectedIcon,
+          systemPrompt,
+          defaultTask || undefined,
           model
         );
       } else {
         await api.createAgent(
-          name, 
-          selectedIcon, 
-          systemPrompt, 
-          defaultTask || undefined, 
-          model
+          name,
+          selectedIcon,
+          systemPrompt,
+          defaultTask || undefined,
+          model,
+          undefined,
+          undefined,
+          undefined,
+          roleType
         );
       }
       
@@ -288,6 +299,27 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
                   </motion.button>
                 </div>
               </div>
+
+              {/* Role Type Selection */}
+              {defaultRoleType && (
+                <div className="space-y-2 mt-4">
+                  <Label className="text-caption text-muted-foreground">Role Type</Label>
+                  <Select value={roleType} onValueChange={setRoleType}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select role type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="general">General Purpose</SelectItem>
+                      <SelectItem value="teamlead">Team Lead</SelectItem>
+                      <SelectItem value="developer">Developer</SelectItem>
+                      <SelectItem value="reviewer">Reviewer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-caption text-muted-foreground">
+                    Determines how this agent can be used in your team
+                  </p>
+                </div>
+              )}
             </Card>
 
             {/* Configuration */}

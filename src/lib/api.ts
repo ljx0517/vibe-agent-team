@@ -746,6 +746,19 @@ export const api = {
   },
 
   /**
+   * Lists all teammates (alias for listTeamleads)
+   * @returns Promise resolving to an array of teammate agents
+   */
+  async listTeammates(): Promise<Agent[]> {
+    try {
+      return await apiCall<Agent[]>('list_teamleads');
+    } catch (error) {
+      console.error("Failed to list teammates:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Creates a new agent
    * @param name - The agent name
    * @param icon - The icon identifier

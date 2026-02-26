@@ -15,7 +15,7 @@ import { useTabState } from "@/hooks/useTabState";
  * AppContent component - Contains the main app logic, wrapped by providers
  */
 function AppContent() {
-  const { } = useTabState();
+  const { createTeammatesTab } = useTabState();
   const [showNFO, setShowNFO] = useState(false);
   const [showClaudeBinaryDialog, setShowClaudeBinaryDialog] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -122,6 +122,7 @@ function AppContent() {
             window.dispatchEvent(new CustomEvent('create-settings-tab'));
           }}
           onAgentsClick={() => {}}
+          onTeammatesClick={() => createTeammatesTab()}
         />
         
         {/* Tab-based interface */}

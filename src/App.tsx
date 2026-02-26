@@ -68,7 +68,7 @@ interface DbProject {
 
 function AppContent() {
   const [view, setView] = useState<View>("three-level"); /*tabs*/
-  const { createClaudeMdTab, createSettingsTab, createUsageTab, createMCPTab, createAgentsTab } = useTabState();
+  const { createClaudeMdTab, createSettingsTab, createUsageTab, createMCPTab, createAgentsTab, createTeammatesTab } = useTabState();
   const [projects, setProjects] = useState<Project[]>([]);
   const [dbProjects, setDbProjects] = useState<DbProject[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -547,6 +547,7 @@ function AppContent() {
       {/* Custom Titlebar */}
       <CustomTitlebar
         onAgentsClick={() => createAgentsTab()}
+        onTeammatesClick={() => createTeammatesTab()}
         onUsageClick={() => createUsageTab()}
         onClaudeClick={() => createClaudeMdTab()}
         onMCPClick={() => createMCPTab()}
