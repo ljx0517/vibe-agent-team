@@ -46,6 +46,7 @@ interface Member {
   id: string;
   name: string;
   avatar?: string;
+  role_type?: string;
 }
 
 // 左侧导航项
@@ -172,11 +173,12 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
       // 刷新项目成员列表
       if (selectedProject.project_id) {
         const agents = await api.listProjectAgents(selectedProject.project_id);
-        console.log('[AddMember] Refreshed project agents:', agents.map(a => ({ id: a.id, name: a.name })));
+        console.log('[AddMember] Refreshed project agents:', agents.map(a => ({ id: a.id, name: a.name, role_type: a.role_type })));
         const members: Member[] = agents.map(agent => ({
           id: String(agent.id) || '',
           name: agent.nickname || agent.name,
           avatar: agent.icon || undefined,
+          role_type: agent.role_type,
         }));
         console.log('[AddMember] Setting project members:', members);
         setProjectMembers(members);
@@ -219,6 +221,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             icon: string;
             color: string | null;
             nickname: string | null;
+            role_type?: string;
           }>>('list_project_agents', { projectId: selectedProject.project_id });
 
           // 转换为 Member 格式
@@ -226,6 +229,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             id: agent.id || '',
             name: agent.nickname || agent.name,
             avatar: agent.icon || undefined,
+            role_type: agent.role_type,
           }));
           setProjectMembers(members);
         } catch (error) {
@@ -579,6 +583,9 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                   {member.name.charAt(0)}
                 </div>
                 <span className="text-sm">{member.name}</span>
+                {member.role_type === 'teamlead' && (
+                  <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Lead</span>
+                )}
               </div>
             ))}
           </div>
