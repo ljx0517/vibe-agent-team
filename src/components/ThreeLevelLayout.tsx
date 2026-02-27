@@ -10,7 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Check } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -103,17 +103,35 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [availableMembers, setAvailableMembers] = useState<Agent[]>([]);
   const [loadingAvailableMembers, setLoadingAvailableMembers] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [isAddingMembers, setIsAddingMembers] = useState(false);
 
-  // 加载可选成员（排除 teamlead 角色）
+  // 加载可选成员（排除 teamlead 角色，排除已添加到当前项目的成员）
   const loadAvailableMembers = async () => {
     try {
       setLoadingAvailableMembers(true);
+      setSelectedMemberIds([]); // 重置选择
+      console.log('[AddMember] Loading agents...');
       const allAgents = await api.listAgents();
-      // 过滤掉 teamlead 角色
-      const filtered = allAgents.filter(agent => agent.role_type !== 'teamlead');
+      console.log('[AddMember] All agents with role_type:', allAgents.map(a => ({ name: a.name, role_type: a.role_type, id: a.id })));
+      console.log('[AddMember] Current project members:', projectMembers.map(m => ({ id: m.id, name: m.name })));
+
+      // 排除已添加到当前项目的成员
+      const existingMemberIds = new Set(projectMembers.map(m => m.id));
+      console.log('[AddMember] Existing member IDs:', existingMemberIds);
+
+      const filtered = allAgents.filter(agent => {
+        if (!agent.id) return false;
+        // 排除 teamlead 角色
+        if (agent.role_type === 'teamlead') return false;
+        // 排除已添加的成员
+        if (existingMemberIds.has(agent.id)) return false;
+        return true;
+      });
+      console.log('[AddMember] Filtered agents:', filtered);
       setAvailableMembers(filtered);
     } catch (error) {
-      console.error('Failed to load available members:', error);
+      console.error('[AddMember] Failed to load available members:', error);
     } finally {
       setLoadingAvailableMembers(false);
     }
@@ -125,11 +143,51 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     setShowAddMemberModal(true);
   };
 
-  // 选择成员（TODO: 调用后端 API 添加到项目）
-  const handleSelectMember = async (agent: Agent) => {
-    console.log('Selected member:', agent);
-    // TODO: 调用后端 API 添加成员到项目
-    setShowAddMemberModal(false);
+  // 切换成员选择
+  const toggleMemberSelection = (agentId: string) => {
+    console.log('[AddMember] toggleMemberSelection called, agentId:', agentId);
+    setSelectedMemberIds(prev => {
+      const newIds = prev.includes(agentId)
+        ? prev.filter(id => id !== agentId)
+        : [...prev, agentId];
+      console.log('[AddMember] selectedMemberIds changed:', prev, '->', newIds);
+      return newIds;
+    });
+  };
+
+  // 添加选中的成员到项目
+  const handleAddSelectedMembers = async () => {
+    if (!selectedProject || selectedMemberIds.length === 0) return;
+
+    setIsAddingMembers(true);
+    try {
+      console.log('[AddMember] Adding members to project:', selectedProject.project_id, selectedMemberIds);
+      // 批量添加到 project_agents 关联表
+      await Promise.all(
+        selectedMemberIds.map(memberId =>
+          api.addAgentToProject(selectedProject.project_id, memberId)
+        )
+      );
+      console.log('[AddMember] Successfully added members:', selectedMemberIds);
+      // 刷新项目成员列表
+      if (selectedProject.project_id) {
+        const agents = await api.listProjectAgents(selectedProject.project_id);
+        console.log('[AddMember] Refreshed project agents:', agents.map(a => ({ id: a.id, name: a.name })));
+        const members: Member[] = agents.map(agent => ({
+          id: String(agent.id) || '',
+          name: agent.nickname || agent.name,
+          avatar: agent.icon || undefined,
+        }));
+        console.log('[AddMember] Setting project members:', members);
+        setProjectMembers(members);
+      }
+      setShowAddMemberModal(false);
+      setSelectedMemberIds([]);
+    } catch (error) {
+      console.error('[AddMember] Failed to add members:', error);
+    } finally {
+      setIsAddingMembers(false);
+    }
   };
 
   // 发送消息处理函数
@@ -557,29 +615,57 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             </div>
           ) : (
             <div className="space-y-2">
-              {availableMembers.map((agent) => (
-                <div
-                  key={agent.id}
-                  onClick={() => handleSelectMember(agent)}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                >
-                  <div className="w-10 h-10 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                    {agent.name.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{agent.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {agent.role_type || 'general'}
+              {availableMembers.map((agent) => {
+                const agentId = agent.id || '';
+                const isSelected = !!agentId && selectedMemberIds.includes(agentId);
+                const handleClick = () => {
+                  console.log('[AddMember] Clicked agent:', agent.name, 'id:', agent.id, 'agentId:', agentId);
+                  if (agentId) {
+                    toggleMemberSelection(agentId);
+                  }
+                };
+                return (
+                  <div
+                    key={agent.id}
+                    onClick={handleClick}
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors",
+                      isSelected ? "bg-primary/10 border border-primary" : "hover:bg-accent"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center transition-colors",
+                      isSelected ? "bg-primary border-primary" : "border-muted-foreground"
+                    )}>
+                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </div>
+                    <div className="w-10 h-10 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                      {agent.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">{agent.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {agent.role_type || 'general'}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setShowAddMemberModal(false)}>
             取消
+          </Button>
+          <Button
+            onClick={handleAddSelectedMembers}
+            disabled={selectedMemberIds.length === 0 || isAddingMembers}
+          >
+            {isAddingMembers ? (
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+            ) : null}
+            添加 {selectedMemberIds.length > 0 ? `(${selectedMemberIds.length})` : ''}
           </Button>
         </DialogFooter>
       </DialogContent>

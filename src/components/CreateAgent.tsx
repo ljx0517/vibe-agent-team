@@ -1,13 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Save, Loader2, ChevronDown, AlertCircle } from "lucide-react";
+import { ArrowLeft, Save, Loader2, ChevronDown, AlertCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Toast, ToastContainer } from "@/components/ui/toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, type Agent } from "@/lib/api";
+import { api, type Agent, type EnglishName } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import MDEditor from "@uiw/react-md-editor";
 import { type AgentIconName } from "./CCAgents";
@@ -55,21 +55,49 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt || "");
   const [defaultTask, setDefaultTask] = useState(agent?.default_task || "");
   const [roleType, setRoleType] = useState(agent?.role_type || defaultRoleType || "general");
+  const [gender, setGender] = useState(agent?.gender || "");
+  const [nickname, setNickname] = useState(agent?.nickname || "");
+  const [color, setColor] = useState(agent?.color || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [generatingName, setGeneratingName] = useState(false);
+  const [roleTypeDisabled, setRoleTypeDisabled] = useState(false);
 
   const isEditMode = !!agent;
+
+  // 检查 teamlead 是否已归属项目，如果是则禁用 role_type
+  useEffect(() => {
+    if (isEditMode && agent?.role_type === 'teamlead' && agent.id) {
+      api.isAgentInProject(String(agent.id)).then(inProject => {
+        setRoleTypeDisabled(inProject);
+      }).catch(err => {
+        console.error('Failed to check agent project status:', err);
+      });
+    }
+  }, [isEditMode, agent?.role_type, agent?.id]);
+
+  const handleGenerateRandomName = async () => {
+    try {
+      setGeneratingName(true);
+      const nameData: EnglishName = await api.getRandomEnglishName();
+      setName(nameData.en);
+      setNickname(nameData.zh);
+      setGender(nameData.gender);
+      // 生成随机颜色
+      const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F"];
+      setColor(colors[Math.floor(Math.random() * colors.length)]);
+    } catch (error) {
+      console.error("Failed to generate random name:", error);
+    } finally {
+      setGeneratingName(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!name.trim()) {
       setError("Agent name is required");
-      return;
-    }
-
-    if (!systemPrompt.trim()) {
-      setError("System prompt is required");
       return;
     }
 
@@ -83,7 +111,13 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
           name,
           selectedIcon,
           systemPrompt,
-          defaultTask || undefined
+          defaultTask || undefined,
+          undefined,
+          undefined,
+          roleType,
+          gender || undefined,
+          nickname || undefined,
+          color || undefined
         );
       } else {
         await api.createAgent(
@@ -94,7 +128,10 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
           undefined,
           undefined,
           undefined,
-          roleType
+          roleType,
+          gender || undefined,
+          nickname || undefined,
+          color || undefined
         );
       }
       
@@ -164,7 +201,7 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
             >
               <Button
                 onClick={handleSave}
-                disabled={saving || !name.trim() || !systemPrompt.trim()}
+                disabled={saving || !name.trim()}
                 size="default"
               >
                 {saving ? (
@@ -207,15 +244,34 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name" className="text-caption text-muted-foreground">Agent Name</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g., Code Assistant"
-                    required
-                    className="h-9"
-                  />
+                  <Label htmlFor="name" className="text-caption text-muted-foreground">
+                    Agent Name <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g., Code Assistant"
+                      required
+                      className="h-9 flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={handleGenerateRandomName}
+                      disabled={generatingName}
+                      title="Generate random name"
+                      className="h-9 w-9 flex-shrink-0"
+                    >
+                      {generatingName ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
                 
                 <div className="space-y-2">
@@ -245,8 +301,10 @@ export const CreateAgent: React.FC<CreateAgentProps> = ({
               {/* Role Type Selection */}
               {defaultRoleType && (
                 <div className="space-y-2 mt-4">
-                  <Label className="text-caption text-muted-foreground">Role Type</Label>
-                  <Select value={roleType} onValueChange={setRoleType}>
+                  <Label className="text-caption text-muted-foreground">
+                    Role Type {roleTypeDisabled && <span className="text-orange-500">(已归属项目，无法修改)</span>}
+                  </Label>
+                  <Select value={roleType} onValueChange={setRoleType} disabled={roleTypeDisabled}>
                     <SelectTrigger className="h-9">
                       <SelectValue placeholder="Select role type" />
                     </SelectTrigger>

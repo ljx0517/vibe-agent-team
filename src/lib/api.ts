@@ -113,8 +113,7 @@ export interface ClaudeInstallation {
 
 // Agent API types
 export interface Agent {
-  id?: number;
-  project_id?: string;
+  id?: string;
   name: string;
   icon: string;
   color?: string;
@@ -471,6 +470,15 @@ export interface Message {
 }
 
 /**
+ * English name structure from name_generator
+ */
+export interface EnglishName {
+  zh: string;
+  en: string;
+  gender: string; // "男" or "女"
+}
+
+/**
  * API client for interacting with the Rust backend
  */
 export const api = {
@@ -733,6 +741,35 @@ export const api = {
   },
 
   /**
+   * Add an agent to a project
+   * @param projectId - The project ID to add the agent to
+   * @param agentId - The agent ID to add
+   * @param projectPrompt - Optional project-specific prompt for the agent
+   */
+  async addAgentToProject(projectId: string, agentId: string, projectPrompt?: string): Promise<void> {
+    try {
+      await apiCall<void>('add_agent_to_project', { projectId, agentId, projectPrompt });
+    } catch (error) {
+      console.error("Failed to add agent to project:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Check if an agent belongs to any project
+   * @param agentId - The agent ID to check
+   * @returns Promise resolving to true if agent is in a project
+   */
+  async isAgentInProject(agentId: string): Promise<boolean> {
+    try {
+      return await apiCall<boolean>('is_agent_in_project', { agentId });
+    } catch (error) {
+      console.error("Failed to check agent project status:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Lists all teamlead agents
    * @returns Promise resolving to an array of teamlead agents
    */
@@ -776,19 +813,33 @@ export const api = {
     model?: string,
     hooks?: string,
     settings?: string,
-    project_id?: string,
-    role_type?: string
+    role_type?: string,
+    color?: string,
+    nickname?: string,
+    gender?: string,
+    agent_type?: string,
+    tools?: string,
+    enable_file_read?: boolean,
+    enable_file_write?: boolean,
+    enable_network?: boolean
   ): Promise<Agent> {
     try {
       return await apiCall<Agent>('create_agent', {
         name,
         icon,
+        color,
+        nickname,
+        gender,
+        agentType: agent_type,
         systemPrompt: system_prompt,
         defaultTask: default_task,
         model,
+        tools,
+        enableFileRead: enable_file_read,
+        enableFileWrite: enable_file_write,
+        enableNetwork: enable_network,
         hooks,
         settings,
-        projectId: project_id,
         roleType: role_type
       });
     } catch (error) {
@@ -809,23 +860,31 @@ export const api = {
    * @returns Promise resolving to the updated agent
    */
   async updateAgent(
-    id: number, 
-    name: string, 
-    icon: string, 
-    system_prompt: string, 
-    default_task?: string, 
+    id: number | string,
+    name: string,
+    icon: string,
+    system_prompt: string,
+    default_task?: string,
     model?: string,
-    hooks?: string
+    hooks?: string,
+    role_type?: string,
+    gender?: string,
+    nickname?: string,
+    color?: string
   ): Promise<Agent> {
     try {
-      return await apiCall<Agent>('update_agent', { 
-        id, 
-        name, 
-        icon, 
+      return await apiCall<Agent>('update_agent', {
+        id,
+        name,
+        icon,
+        color,
+        nickname,
+        gender,
         systemPrompt: system_prompt,
         defaultTask: default_task,
         model,
-        hooks
+        hooks,
+        roleType: role_type
       });
     } catch (error) {
       console.error("Failed to update agent:", error);
@@ -2079,6 +2138,34 @@ export const api = {
     } catch (error) {
       console.error("Failed to save message response:", error);
       throw error;
+    }
+  },
+
+  /**
+   * Generate a random English name
+   * @param gender - Optional gender filter ("男" or "女")
+   * @returns Promise resolving to a random EnglishName
+   */
+  async getRandomEnglishName(gender?: string): Promise<EnglishName> {
+    try {
+      return await apiCall<EnglishName>("cmd_random_english_name", { gender });
+    } catch (error) {
+      console.error("Failed to get random English name:", error);
+      // Fallback: return a default name if API fails
+      return { zh: "詹姆斯", en: "James", gender: "男" };
+    }
+  },
+
+  /**
+   * Get a random color
+   * @returns Promise resolving to a random hex color
+   */
+  async getRandomColor(): Promise<string> {
+    try {
+      return await apiCall<string>("cmd_get_random_color");
+    } catch (error) {
+      console.error("Failed to get random color:", error);
+      return "#4ECDC4"; // Default fallback
     }
   },
 
