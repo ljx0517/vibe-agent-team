@@ -26,7 +26,6 @@ fn find_claude_binary(app_handle: &AppHandle) -> Result<String, String> {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Agent {
     pub id: Option<String>,
-    pub project_id: Option<String>, // 归属的团队/项目ID
     pub name: String,
     pub icon: String,
     pub color: Option<String>,
@@ -243,7 +242,6 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
     conn.execute(
         "CREATE TABLE IF NOT EXISTS agents (
             id TEXT PRIMARY KEY,
-            project_id TEXT,
             name TEXT NOT NULL,
             icon TEXT NOT NULL,
             color TEXT,
@@ -259,33 +257,12 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
             enable_network BOOLEAN NOT NULL DEFAULT 0,
             hooks TEXT,
             settings TEXT,
+            role_type TEXT DEFAULT 'teammate',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )",
         [],
     )?;
-
-    // Add columns to existing table if they don't exist
-    let _ = conn.execute("ALTER TABLE agents ADD COLUMN default_task TEXT", []);
-    let _ = conn.execute(
-        "ALTER TABLE agents ADD COLUMN model TEXT DEFAULT 'sonnet'",
-        [],
-    );
-    let _ = conn.execute("ALTER TABLE agents ADD COLUMN hooks TEXT", []);
-    let _ = conn.execute("ALTER TABLE agents ADD COLUMN role_type TEXT DEFAULT 'teammate'", []);
-    let _ = conn.execute(
-        "ALTER TABLE agents ADD COLUMN enable_file_read BOOLEAN DEFAULT 1",
-        [],
-    );
-    let _ = conn.execute(
-        "ALTER TABLE agents ADD COLUMN enable_file_write BOOLEAN DEFAULT 1",
-        [],
-    );
-    let _ = conn.execute(
-        "ALTER TABLE agents ADD COLUMN enable_network BOOLEAN DEFAULT 0",
-        [],
-    );
-    // Note: ALTER TABLE statements removed - database is recreated fresh in development
 
     // Create agent_runs table
     conn.execute(
@@ -307,18 +284,6 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
         )",
         [],
     )?;
-
-    // Migrate existing agent_runs table if needed
-    let _ = conn.execute("ALTER TABLE agent_runs ADD COLUMN session_id TEXT", []);
-    let _ = conn.execute(
-        "ALTER TABLE agent_runs ADD COLUMN status TEXT DEFAULT 'pending'",
-        [],
-    );
-    let _ = conn.execute("ALTER TABLE agent_runs ADD COLUMN pid INTEGER", []);
-    let _ = conn.execute(
-        "ALTER TABLE agent_runs ADD COLUMN process_started_at TEXT",
-        [],
-    );
 
     // Drop old columns that are no longer needed (data is now read from JSONL files)
     // Note: SQLite doesn't support DROP COLUMN, so we'll ignore errors for existing columns
@@ -445,6 +410,7 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
             agent_id TEXT NOT NULL,
             project_agent_id TEXT NOT NULL,
             target_branch TEXT NOT NULL DEFAULT 'main',
+            project_prompt TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -452,9 +418,6 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
         )",
         [],
     )?;
-
-    // Add column if not exists
-    let _ = conn.execute("ALTER TABLE project_agents ADD COLUMN project_agent_id TEXT NOT NULL DEFAULT ''", []);
 
     // Create messages table
     conn.execute(
@@ -482,34 +445,33 @@ pub async fn list_agents(db: State<'_, AgentDb>) -> Result<Vec<Agent>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
-        .prepare("SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents ORDER BY created_at DESC")
+        .prepare("SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents ORDER BY created_at DESC")
         .map_err(|e| e.to_string())?;
 
     let agents = stmt
         .query_map([], |row| {
             Ok(Agent {
                 id: Some(row.get(0)?),
-                project_id: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                color: row.get(4)?,
-                nickname: row.get(5)?,
-                gender: row.get(6)?,
-                agent_type: row.get::<_, String>(7).unwrap_or_else(|_| "general-purpose".to_string()),
-                system_prompt: row.get(8)?,
-                default_task: row.get(9)?,
+                name: row.get(1)?,
+                icon: row.get(2)?,
+                color: row.get(3)?,
+                nickname: row.get(4)?,
+                gender: row.get(5)?,
+                agent_type: row.get::<_, String>(6).unwrap_or_else(|_| "general-purpose".to_string()),
+                system_prompt: row.get(7)?,
+                default_task: row.get(8)?,
                 model: row
-                    .get::<_, String>(10)
+                    .get::<_, String>(9)
                     .unwrap_or_else(|_| "sonnet".to_string()),
-                tools: row.get(11)?,
-                enable_file_read: row.get::<_, bool>(12).unwrap_or(true),
-                enable_file_write: row.get::<_, bool>(13).unwrap_or(true),
-                enable_network: row.get::<_, bool>(14).unwrap_or(false),
-                hooks: row.get(15)?,
-                settings: row.get(16)?,
-                role_type: row.get(17).ok(),
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                tools: row.get(10)?,
+                enable_file_read: row.get::<_, bool>(11).unwrap_or(true),
+                enable_file_write: row.get::<_, bool>(12).unwrap_or(true),
+                enable_network: row.get::<_, bool>(13).unwrap_or(false),
+                hooks: row.get(14)?,
+                settings: row.get(15)?,
+                role_type: row.get(16).ok(),
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -527,40 +489,78 @@ pub async fn list_agents(db: State<'_, AgentDb>) -> Result<Vec<Agent>, String> {
 pub async fn list_teamleads(db: State<'_, AgentDb>) -> Result<Vec<Agent>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE role_type = 'teamlead' ORDER BY created_at DESC")
+        .prepare("SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE role_type = 'teamlead' ORDER BY created_at DESC")
         .map_err(|e| e.to_string())?;
 
     let agents = stmt
         .query_map([], |row| {
             Ok(Agent {
                 id: Some(row.get(0)?),
-                project_id: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                color: row.get(4)?,
-                nickname: row.get(5)?,
-                gender: row.get(6)?,
-                agent_type: row.get::<_, String>(7).unwrap_or_else(|_| "general-purpose".to_string()),
-                system_prompt: row.get(8)?,
-                default_task: row.get(9)?,
+                name: row.get(1)?,
+                icon: row.get(2)?,
+                color: row.get(3)?,
+                nickname: row.get(4)?,
+                gender: row.get(5)?,
+                agent_type: row.get::<_, String>(6).unwrap_or_else(|_| "general-purpose".to_string()),
+                system_prompt: row.get(7)?,
+                default_task: row.get(8)?,
                 model: row
-                    .get::<_, String>(10)
+                    .get::<_, String>(9)
                     .unwrap_or_else(|_| "sonnet".to_string()),
-                tools: row.get(11)?,
-                enable_file_read: row.get::<_, bool>(12).unwrap_or(true),
-                enable_file_write: row.get::<_, bool>(13).unwrap_or(true),
-                enable_network: row.get::<_, bool>(14).unwrap_or(false),
-                hooks: row.get(15)?,
-                settings: row.get(16)?,
-                role_type: row.get(17).ok(),
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                tools: row.get(10)?,
+                enable_file_read: row.get::<_, bool>(11).unwrap_or(true),
+                enable_file_write: row.get::<_, bool>(12).unwrap_or(true),
+                enable_network: row.get::<_, bool>(13).unwrap_or(false),
+                hooks: row.get(14)?,
+                settings: row.get(15)?,
+                role_type: row.get(16).ok(),
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
             })
         })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
     Ok(agents)
+}
+
+/// Add an agent to a project (via project_agents table)
+#[tauri::command]
+pub async fn add_agent_to_project(
+    db: State<'_, AgentDb>,
+    project_id: String,
+    agent_id: String,
+    project_prompt: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    // Insert into project_agents table
+    conn.execute(
+        "INSERT OR IGNORE INTO project_agents (id, project_id, agent_id, project_prompt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+        params![Uuid::new_v4().to_string(), project_id, agent_id, project_prompt],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Check if an agent belongs to any project
+#[tauri::command]
+pub async fn is_agent_in_project(
+    db: State<'_, AgentDb>,
+    agent_id: String,
+) -> Result<bool, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let count: i32 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM project_agents WHERE agent_id = ?1",
+            params![agent_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(count > 0)
 }
 
 /// List agents for a specific project (via project_agents table)
@@ -574,7 +574,7 @@ pub async fn list_project_agents(
     // Query agents via project_agents table (the canonical way)
     let mut stmt = conn
         .prepare(
-            "SELECT a.id, a.project_id, a.name, a.icon, a.color, a.nickname, a.gender,
+            "SELECT a.id, a.name, a.icon, a.color, a.nickname, a.gender,
                     a.agent_type, a.system_prompt, a.default_task, a.model, a.tools,
                     a.enable_file_read, a.enable_file_write, a.enable_network,
                     a.hooks, a.settings, a.role_type, a.created_at, a.updated_at
@@ -589,25 +589,24 @@ pub async fn list_project_agents(
         .query_map([&project_id], |row| {
             Ok(Agent {
                 id: Some(row.get(0)?),
-                project_id: row.get(1)?,
-                name: row.get(2)?,
-                icon: row.get(3)?,
-                color: row.get(4)?,
-                nickname: row.get(5)?,
-                gender: row.get(6)?,
-                agent_type: row.get(7)?,
-                system_prompt: row.get(8)?,
-                default_task: row.get(9)?,
-                model: row.get(10)?,
-                tools: row.get(11)?,
-                enable_file_read: row.get::<_, bool>(12).unwrap_or(true),
-                enable_file_write: row.get::<_, bool>(13).unwrap_or(true),
-                enable_network: row.get::<_, bool>(14).unwrap_or(false),
-                hooks: row.get(15)?,
-                settings: row.get(16)?,
-                role_type: row.get(17).ok(),
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                name: row.get(1)?,
+                icon: row.get(2)?,
+                color: row.get(3)?,
+                nickname: row.get(4)?,
+                gender: row.get(5)?,
+                agent_type: row.get(6)?,
+                system_prompt: row.get(7)?,
+                default_task: row.get(8)?,
+                model: row.get(9)?,
+                tools: row.get(10)?,
+                enable_file_read: row.get::<_, bool>(11).unwrap_or(true),
+                enable_file_write: row.get::<_, bool>(12).unwrap_or(true),
+                enable_network: row.get::<_, bool>(13).unwrap_or(false),
+                hooks: row.get(14)?,
+                settings: row.get(15)?,
+                role_type: row.get(16).ok(),
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -635,7 +634,6 @@ pub async fn create_agent(
     enable_network: Option<bool>,
     hooks: Option<String>,
     settings: Option<String>,
-    project_id: Option<String>,
     role_type: Option<String>,
 ) -> Result<Agent, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -649,38 +647,37 @@ pub async fn create_agent(
     let id = Uuid::new_v4().to_string();
 
     conn.execute(
-        "INSERT INTO agents (id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-        params![id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type],
+        "INSERT INTO agents (id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        params![id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type],
     )
     .map_err(|e| e.to_string())?;
 
     // Fetch the created agent
     let agent = conn
         .query_row(
-            "SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
+            "SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Agent {
                     id: Some(row.get(0)?),
-                    project_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    nickname: row.get(5)?,
-                    gender: row.get(6)?,
-                    agent_type: row.get(7)?,
-                        system_prompt: row.get(8)?,
-                    default_task: row.get(9)?,
-                    model: row.get(11)?,
-                    tools: row.get(11)?,
-                    enable_file_read: row.get(13)?,
-                    enable_file_write: row.get(14)?,
-                    enable_network: row.get(15)?,
-                    hooks: row.get(15)?,
-                    settings: row.get(17)?,
-                    role_type: row.get(18).ok(),
-                    created_at: row.get(19)?,
-                    updated_at: row.get(19)?,
+                    name: row.get(1)?,
+                    icon: row.get(2)?,
+                    color: row.get(3)?,
+                    nickname: row.get(4)?,
+                    gender: row.get(5)?,
+                    agent_type: row.get(6)?,
+                    system_prompt: row.get(7)?,
+                    default_task: row.get(8)?,
+                    model: row.get(9)?,
+                    tools: row.get(10)?,
+                    enable_file_read: row.get(11)?,
+                    enable_file_write: row.get(12)?,
+                    enable_network: row.get(13)?,
+                    hooks: row.get(14)?,
+                    settings: row.get(15)?,
+                    role_type: row.get(16).ok(),
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )
@@ -703,6 +700,10 @@ pub async fn update_agent(
     enable_file_write: Option<bool>,
     enable_network: Option<bool>,
     hooks: Option<String>,
+    role_type: Option<String>,
+    color: Option<String>,
+    nickname: Option<String>,
+    gender: Option<String>,
 ) -> Result<Agent, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let model = model.unwrap_or_else(|| "sonnet".to_string());
@@ -736,6 +737,26 @@ pub async fn update_agent(
         query.push_str(&format!(", enable_network = ?{}", param_count));
         params_vec.push(Box::new(en));
     }
+    if let Some(rt) = role_type {
+        param_count += 1;
+        query.push_str(&format!(", role_type = ?{}", param_count));
+        params_vec.push(Box::new(rt));
+    }
+    if let Some(c) = color {
+        param_count += 1;
+        query.push_str(&format!(", color = ?{}", param_count));
+        params_vec.push(Box::new(c));
+    }
+    if let Some(n) = nickname {
+        param_count += 1;
+        query.push_str(&format!(", nickname = ?{}", param_count));
+        params_vec.push(Box::new(n));
+    }
+    if let Some(g) = gender {
+        param_count += 1;
+        query.push_str(&format!(", gender = ?{}", param_count));
+        params_vec.push(Box::new(g));
+    }
 
     param_count += 1;
     query.push_str(&format!(" WHERE id = ?{}", param_count));
@@ -750,30 +771,29 @@ pub async fn update_agent(
     // Fetch the updated agent
     let agent = conn
         .query_row(
-            "SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
+            "SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Agent {
                     id: Some(row.get(0)?),
-                    project_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    nickname: row.get(5)?,
-                    gender: row.get(6)?,
-                    agent_type: row.get(7)?,
-                        system_prompt: row.get(8)?,
-                    default_task: row.get(9)?,
-                    model: row.get(11)?,
-                    tools: row.get(11)?,
-                    enable_file_read: row.get(13)?,
-                    enable_file_write: row.get(14)?,
-                    enable_network: row.get(15)?,
-                    hooks: row.get(15)?,
-                    settings: row.get(17)?,
-                    role_type: row.get(18).ok(),
-                    created_at: row.get(19)?,
-                    updated_at: row.get(19)?,
+                    name: row.get(1)?,
+                    icon: row.get(2)?,
+                    color: row.get(3)?,
+                    nickname: row.get(4)?,
+                    gender: row.get(5)?,
+                    agent_type: row.get(6)?,
+                    system_prompt: row.get(7)?,
+                    default_task: row.get(8)?,
+                    model: row.get(9)?,
+                    tools: row.get(10)?,
+                    enable_file_read: row.get(11)?,
+                    enable_file_write: row.get(12)?,
+                    enable_network: row.get(13)?,
+                    hooks: row.get(14)?,
+                    settings: row.get(15)?,
+                    role_type: row.get(16).ok(),
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )
@@ -800,30 +820,29 @@ pub async fn get_agent(db: State<'_, AgentDb>, id: String) -> Result<Agent, Stri
 
     let agent = conn
         .query_row(
-            "SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
+            "SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Agent {
                     id: Some(row.get(0)?),
-                    project_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    nickname: row.get(5)?,
-                    gender: row.get(6)?,
-                    agent_type: row.get::<_, String>(7).unwrap_or_else(|_| "general-purpose".to_string()),
-                        system_prompt: row.get(8)?,
-                    default_task: row.get(9)?,
-                    model: row.get::<_, String>(11).unwrap_or_else(|_| "sonnet".to_string()),
-                    tools: row.get(11)?,
-                    enable_file_read: row.get::<_, bool>(12).unwrap_or(true),
-                    enable_file_write: row.get::<_, bool>(13).unwrap_or(true),
-                    enable_network: row.get::<_, bool>(14).unwrap_or(false),
-                    hooks: row.get(15)?,
-                    settings: row.get(17)?,
-                    role_type: row.get(18).ok(),
-                    created_at: row.get(19)?,
-                    updated_at: row.get(19)?,
+                    name: row.get(1)?,
+                    icon: row.get(2)?,
+                    color: row.get(3)?,
+                    nickname: row.get(4)?,
+                    gender: row.get(5)?,
+                    agent_type: row.get::<_, String>(6).unwrap_or_else(|_| "general-purpose".to_string()),
+                    system_prompt: row.get(7)?,
+                    default_task: row.get(8)?,
+                    model: row.get::<_, String>(9).unwrap_or_else(|_| "sonnet".to_string()),
+                    tools: row.get(10)?,
+                    enable_file_read: row.get::<_, bool>(11).unwrap_or(true),
+                    enable_file_write: row.get::<_, bool>(12).unwrap_or(true),
+                    enable_network: row.get::<_, bool>(13).unwrap_or(false),
+                    hooks: row.get(14)?,
+                    settings: row.get(15)?,
+                    role_type: row.get(16).ok(),
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )
@@ -2017,11 +2036,10 @@ pub async fn import_agent(db: State<'_, AgentDb>, json_data: String) -> Result<A
         agent_data.name
     };
 
-    // Create the agent (imported agents don't have a project_id by default)
+    // Create the agent
     conn.execute(
-        "INSERT INTO agents (project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, enable_file_read, enable_file_write, enable_network, hooks, settings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, 1, 0, ?11, ?12)",
+        "INSERT INTO agents (name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, enable_file_read, enable_file_write, enable_network, hooks, settings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, 1, 0, ?11, ?12)",
         params![
-            None::<String>,
             final_name,
             agent_data.icon,
             None::<String> as Option<String>,
@@ -2042,30 +2060,29 @@ pub async fn import_agent(db: State<'_, AgentDb>, json_data: String) -> Result<A
     // Fetch the created agent
     let agent = conn
         .query_row(
-            "SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
+            "SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Agent {
                     id: Some(row.get(0)?),
-                    project_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    nickname: row.get(5)?,
-                    gender: row.get(6)?,
-                    agent_type: row.get::<_, String>(7).unwrap_or_else(|_| "general-purpose".to_string()),
-                        system_prompt: row.get(8)?,
-                    default_task: row.get(9)?,
-                    model: row.get(11)?,
-                    tools: row.get(11)?,
-                    enable_file_read: row.get(13)?,
-                    enable_file_write: row.get(14)?,
-                    enable_network: row.get(15)?,
-                    hooks: row.get(15)?,
-                    settings: row.get(17)?,
-                    role_type: row.get(18).ok(),
-                    created_at: row.get(19)?,
-                    updated_at: row.get(19)?,
+                    name: row.get(1)?,
+                    icon: row.get(2)?,
+                    color: row.get(3)?,
+                    nickname: row.get(4)?,
+                    gender: row.get(5)?,
+                    agent_type: row.get::<_, String>(6).unwrap_or_else(|_| "general-purpose".to_string()),
+                    system_prompt: row.get(7)?,
+                    default_task: row.get(8)?,
+                    model: row.get(9)?,
+                    tools: row.get(10)?,
+                    enable_file_read: row.get::<_, bool>(11).unwrap_or(true),
+                    enable_file_write: row.get::<_, bool>(12).unwrap_or(true),
+                    enable_network: row.get::<_, bool>(13).unwrap_or(false),
+                    hooks: row.get(14)?,
+                    settings: row.get(15)?,
+                    role_type: row.get(16).ok(),
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )
@@ -2306,7 +2323,6 @@ async fn create_agent_internal(
     enable_network: Option<bool>,
     hooks: Option<String>,
     settings: Option<String>,
-    project_id: Option<String>,
 ) -> Result<Agent, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let model = model.unwrap_or_else(|| "sonnet".to_string());
@@ -2317,38 +2333,37 @@ async fn create_agent_internal(
     let id = Uuid::new_v4().to_string();
 
     conn.execute(
-        "INSERT INTO agents (id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, enable_file_read, enable_file_write, enable_network, hooks, settings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-        params![id, project_id, name, icon, None::<String>, None::<String>, None::<String>, "general-purpose", system_prompt, default_task, model, enable_file_read, enable_file_write, enable_network, hooks, settings],
+        "INSERT INTO agents (id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, enable_file_read, enable_file_write, enable_network, hooks, settings) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        params![id, name, icon, None::<String>, None::<String>, None::<String>, "general-purpose", system_prompt, default_task, model, enable_file_read, enable_file_write, enable_network, hooks, settings],
     )
     .map_err(|e| e.to_string())?;
 
     // Fetch the created agent
     let agent = conn
         .query_row(
-            "SELECT id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
+            "SELECT id, name, icon, color, nickname, gender, agent_type, system_prompt, default_task, model, tools, enable_file_read, enable_file_write, enable_network, hooks, settings, role_type, created_at, updated_at FROM agents WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Agent {
                     id: Some(row.get(0)?),
-                    project_id: row.get(1)?,
-                    name: row.get(2)?,
-                    icon: row.get(3)?,
-                    color: row.get(4)?,
-                    nickname: row.get(5)?,
-                    gender: row.get(6)?,
-                    agent_type: row.get::<_, String>(7).unwrap_or_else(|_| "general-purpose".to_string()),
-                        system_prompt: row.get(8)?,
-                    default_task: row.get(9)?,
-                    model: row.get(11)?,
-                    tools: row.get(11)?,
-                    enable_file_read: row.get(13)?,
-                    enable_file_write: row.get(14)?,
-                    enable_network: row.get(15)?,
-                    hooks: row.get(15)?,
-                    settings: row.get(17)?,
-                    role_type: row.get(18).ok(),
-                    created_at: row.get(19)?,
-                    updated_at: row.get(19)?,
+                    name: row.get(1)?,
+                    icon: row.get(2)?,
+                    color: row.get(3)?,
+                    nickname: row.get(4)?,
+                    gender: row.get(5)?,
+                    agent_type: row.get::<_, String>(6).unwrap_or_else(|_| "general-purpose".to_string()),
+                    system_prompt: row.get(7)?,
+                    default_task: row.get(8)?,
+                    model: row.get(9)?,
+                    tools: row.get(10)?,
+                    enable_file_read: row.get::<_, bool>(11).unwrap_or(true),
+                    enable_file_write: row.get::<_, bool>(12).unwrap_or(true),
+                    enable_network: row.get::<_, bool>(13).unwrap_or(false),
+                    hooks: row.get(14)?,
+                    settings: row.get(15)?,
+                    role_type: row.get(16).ok(),
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             },
         )

@@ -766,9 +766,9 @@ pub async fn storage_create_project(
                     let project_agent_id = member.agent_id.clone(); // 保存 agentId 字段
 
                     match conn.execute(
-                        "INSERT INTO agents (id, project_id, name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, datetime('now'), datetime('now'))",
-                        params![agent_id, project_id_clone, member.name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type],
+                        "INSERT INTO agents (id, name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'), datetime('now'))",
+                        params![agent_id, member.name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type],
                     ) {
                         Ok(_) => {
                             // Also insert into project_agents table
