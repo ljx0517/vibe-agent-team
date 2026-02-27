@@ -1,7 +1,7 @@
 ---
 name: create-project-team
 description: 为项目创建开发团队，生成 Team Lead 和 Reviewer（Devil's Advocate）信息，创建团队配置文件
-argument-hint: <project-name> <project-description> <workspace-path>
+argument-hint: <project-name> <project-description> <workspace-path> [gender]
 disable-model-invocation: true
 ---
 
@@ -14,12 +14,27 @@ disable-model-invocation: true
 - `$0` = project-name（项目名称）
 - `$1` = project-description（项目描述）
 - `$2` = workspace-path（工作目录路径）
+- `$3` = gender（可选，指定性别：男/女，不指定则随机）
 
 ## 执行步骤
 
 ### 1. 随机生成一个人名
 
-从以下列表中随机选择 1 个人物作为Team Lead。
+使用 Rust 命令 `name_generator` 模块生成随机人名。
+
+**方式一：通过 Tauri 命令调用（推荐）**
+```bash
+# 调用 Rust 后端的 name_generator 模块
+# gender 参数可选：男、女、不传则随机
+tauri invoke random_english_name -- '{"gender": "男"}'
+```
+
+**方式二：使用内置列表（备用）**
+
+如果无法调用 Tauri，从以下列表中根据 `$3` 参数选择：
+- `$3` = "男" → 从男性名字列表随机选择
+- `$3` = "女" → 从女性名字列表随机选择
+- `$3` 为空 → 从全部名字随机选择
 
 | 中文 | 英文 | 性别 |
 | --- | --- | --- |
@@ -36,7 +51,7 @@ disable-model-invocation: true
 | 约瑟夫 | Joseph | 男 |
 | 大卫 | David | 男 |
 | 塞缪尔 | Samuel | 男 |
-| 瑞安 | Ryan | 男 |
+ | Ryan | 男| 瑞安 |
 | 内森 | Nathan | 男 |
 | 克里斯托弗 | Christopher | 男 |
 | 安德鲁 | Andrew | 男 |
