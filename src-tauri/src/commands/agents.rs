@@ -534,12 +534,18 @@ pub async fn add_agent_to_project(
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
-    // Insert into project_agents table
-    conn.execute(
-        "INSERT OR IGNORE INTO project_agents (id, project_id, agent_id, project_prompt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
-        params![Uuid::new_v4().to_string(), project_id, agent_id, project_prompt],
-    )
-    .map_err(|e| e.to_string())?;
+    let project_agent_uuid = Uuid::new_v4().to_string();
+    log::info!("add_agent_to_project: project_id={}, agent_id={}, project_agent_id={}", project_id, agent_id, project_agent_uuid);
+
+    // Insert into project_agents table (project_agent_id is required NOT NULL field)
+    let result = conn.execute(
+        "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, project_prompt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'), datetime('now'))",
+        params![project_agent_uuid, project_id, agent_id, project_agent_uuid, project_prompt],
+    );
+    match result {
+        Ok(rows) => log::info!("add_agent_to_project: inserted {} rows, project_agent_id={}", rows, project_agent_uuid),
+        Err(e) => log::error!("add_agent_to_project: failed to insert: {}", e),
+    }
 
     Ok(())
 }
