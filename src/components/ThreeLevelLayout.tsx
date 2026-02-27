@@ -573,11 +573,15 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
         </div>
       </div>
 
-      {/* 成员列表 */}
+      {/* 成员列表 - teamlead 排在第一位 */}
       <ScrollArea className="flex-1 p-3">
         {projectMembers.length > 0 ? (
           <div className="space-y-2">
-            {projectMembers.map((member) => (
+            {([...projectMembers].sort((a, b) => {
+              if (a.role_type === 'teamlead' && b.role_type !== 'teamlead') return -1;
+              if (a.role_type !== 'teamlead' && b.role_type === 'teamlead') return 1;
+              return 0;
+            })).map((member) => (
               <div key={member.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/50 cursor-pointer">
                 <div className="w-8 h-8 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white text-xs">
                   {member.name.charAt(0)}
