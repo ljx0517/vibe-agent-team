@@ -85,6 +85,10 @@ objc = "0.2"
 # This feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
 
+[[test]]
+name = "integration"
+path = "tests/integration/project_creation_test.rs"
+
 [profile.release]
 strip = true
 opt-level = "z"

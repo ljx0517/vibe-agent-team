@@ -15,7 +15,7 @@ use commands::agents::{
     import_agent_from_file, import_agent_from_github, init_database, kill_agent_session,
     list_agent_runs, list_agent_runs_with_metrics, list_agents, list_claude_installations, list_teamleads,
     list_project_agents, list_running_sessions, load_agent_session_history, set_claude_binary_path,
-    stream_session_output, update_agent, AgentDb,
+    stream_session_output, update_agent, add_agent_to_project, is_agent_in_project, AgentDb,
 };
 use commands::claude::{
     cancel_claude_execution, check_auto_checkpoint, check_claude_version, cleanup_old_checkpoints,
@@ -239,6 +239,8 @@ fn main() {
             list_agents,
             list_teamleads,
             list_project_agents,
+            add_agent_to_project,
+            is_agent_in_project,
             create_agent,
             update_agent,
             delete_agent,
@@ -315,6 +317,11 @@ fn main() {
             send_message,
             get_messages,
             save_message_response,
+            // Name Generator
+            commands::name_generator::cmd_random_english_name,
+            commands::name_generator::cmd_get_random_color,
+            commands::name_generator::cmd_to_legal_folder_name,
+            commands::name_generator::cmd_get_all_english_names,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
