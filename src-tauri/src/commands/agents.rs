@@ -101,8 +101,8 @@ pub struct AgentData {
     pub hooks: Option<String>,
 }
 
-/// Database connection state
-pub struct AgentDb(pub Mutex<Connection>);
+/// Database connection state (Arc for sharing across async tasks)
+pub struct AgentDb(pub std::sync::Arc<std::sync::Mutex<Connection>>);
 
 /// Real-time JSONL reading and processing functions
 impl AgentRunMetrics {
@@ -408,7 +408,6 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             agent_id TEXT NOT NULL,
-            project_agent_id TEXT NOT NULL,
             target_branch TEXT NOT NULL DEFAULT 'main',
             project_prompt TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -429,6 +428,7 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
             target_id TEXT NOT NULL,
             target_name TEXT,
             content TEXT NOT NULL,
+            json_content TEXT,
             message_type TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -535,15 +535,15 @@ pub async fn add_agent_to_project(
     let conn = db.0.lock().map_err(|e| e.to_string())?;
 
     let project_agent_uuid = Uuid::new_v4().to_string();
-    log::info!("add_agent_to_project: project_id={}, agent_id={}, project_agent_id={}", project_id, agent_id, project_agent_uuid);
+    log::info!("add_agent_to_project: project_id={}, agent_id={}, id={}", project_id, agent_id, project_agent_uuid);
 
-    // Insert into project_agents table (project_agent_id is required NOT NULL field)
+    // Insert into project_agents table
     let result = conn.execute(
-        "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, project_prompt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'), datetime('now'))",
-        params![project_agent_uuid, project_id, agent_id, project_agent_uuid, project_prompt],
+        "INSERT INTO project_agents (id, project_id, agent_id, project_prompt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
+        params![project_agent_uuid, project_id, agent_id, project_prompt],
     );
     match result {
-        Ok(rows) => log::info!("add_agent_to_project: inserted {} rows, project_agent_id={}", rows, project_agent_uuid),
+        Ok(rows) => log::info!("add_agent_to_project: inserted {} rows, id={}", rows, project_agent_uuid),
         Err(e) => log::error!("add_agent_to_project: failed to insert: {}", e),
     }
 

@@ -2,6 +2,7 @@ pub mod agents;
 pub mod claude;
 pub mod mcp;
 pub mod message;
+pub mod message_middleware;
 pub mod name_generator;
 pub mod proxy;
 pub mod slash_commands;

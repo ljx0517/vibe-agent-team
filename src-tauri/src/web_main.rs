@@ -42,7 +42,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let db = AgentDb(std::sync::Mutex::new(conn));
+    let db = AgentDb(std::sync::Arc::new(std::sync::Mutex::new(conn)));
 
     if let Err(e) = web_server::start_web_mode(Some(args.port), db).await {
         eprintln!("❌ Failed to start web server: {}", e);

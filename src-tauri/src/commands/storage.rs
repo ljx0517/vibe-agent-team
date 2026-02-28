@@ -612,7 +612,6 @@ pub async fn create_workspace_marker(path: String) -> Result<(), String> {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SelectedTeamlead {
     pub id: String,           // agent id
-    pub project_agent_id: String, // project_agent_id from project_agents table
     pub name: String,
     pub nickname: Option<String>,
     pub gender: Option<String>,
@@ -763,7 +762,6 @@ pub async fn storage_create_project(
                     let system_prompt = member.prompt.clone().unwrap_or_default();
                     let model = member.model.clone().unwrap_or_else(|| "sonnet".to_string());
                     let role_type = member.role_type.clone();
-                    let project_agent_id = member.agent_id.clone(); // 保存 agentId 字段
 
                     match conn.execute(
                         "INSERT INTO agents (id, name, icon, color, nickname, gender, agent_type, system_prompt, model, role_type, created_at, updated_at)
@@ -774,13 +772,13 @@ pub async fn storage_create_project(
                             // Also insert into project_agents table
                             let project_agent_uuid = Uuid::new_v4().to_string();
                             if let Err(e) = conn.execute(
-                                "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
-                                 VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
-                                params![project_agent_uuid, project_id_clone, agent_id, project_agent_id],
+                                "INSERT INTO project_agents (id, project_id, agent_id, created_at, updated_at)
+                                 VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
+                                params![project_agent_uuid, project_id_clone, agent_id],
                             ) {
-                                log::error!("Failed to create project_agent {}: {}", project_agent_id, e);
+                                log::error!("Failed to create project_agent: {}", e);
                             } else {
-                                log::info!("Created project_agent: {} -> agent: {}", project_agent_id, agent_id);
+                                log::info!("Created project_agent: {} -> agent: {}", project_agent_uuid, agent_id);
                             }
 
                             saved_count += 1;
@@ -807,9 +805,9 @@ pub async fn storage_create_project(
                     // Only insert into project_agents table (agent already exists in agents table)
                     let project_agent_uuid = Uuid::new_v4().to_string();
                     if let Err(e) = conn.execute(
-                        "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
-                        params![project_agent_uuid, project_id_clone, teamlead.id, teamlead.project_agent_id],
+                        "INSERT INTO project_agents (id, project_id, agent_id, created_at, updated_at)
+                         VALUES (?1, ?2, ?3, datetime('now'), datetime('now'))",
+                        params![project_agent_uuid, project_id_clone, teamlead.id],
                     ) {
                         log::error!("Failed to link existing teamlead to project_agents: {}", e);
                     } else {

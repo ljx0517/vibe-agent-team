@@ -125,7 +125,6 @@ fn init_tables(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
             agent_id TEXT NOT NULL,
-            project_agent_id TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -691,13 +690,13 @@ You can invoke this skill by name.
         let conn = db.0.lock().unwrap();
 
         conn.execute(
-            "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
+            "INSERT INTO project_agents (id, project_id, agent_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
             rusqlite::params![Uuid::new_v4().to_string(), project_id, teamlead_id, "tl-001"],
         ).expect("Failed to link teamlead");
 
         conn.execute(
-            "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
+            "INSERT INTO project_agents (id, project_id, agent_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
             rusqlite::params![Uuid::new_v4().to_string(), project_id, teammate_id, "tm-001"],
         ).expect("Failed to link teammate");
@@ -787,12 +786,12 @@ fn test_skill_execution_data_flow() {
     {
         let conn = db.0.lock().unwrap();
         conn.execute(
-            "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
+            "INSERT INTO project_agents (id, project_id, agent_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
             rusqlite::params![Uuid::new_v4().to_string(), project_id, teamlead_id, "tl-001"],
         ).unwrap();
         conn.execute(
-            "INSERT INTO project_agents (id, project_id, agent_id, project_agent_id, created_at, updated_at)
+            "INSERT INTO project_agents (id, project_id, agent_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, datetime('now'), datetime('now'))",
             rusqlite::params![Uuid::new_v4().to_string(), project_id, teammate_id, "dev-001"],
         ).unwrap();

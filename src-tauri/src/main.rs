@@ -72,7 +72,7 @@ fn main() {
 
             // Load and apply proxy settings from the database
             {
-                let db = AgentDb(Mutex::new(conn));
+                let db = AgentDb(std::sync::Arc::new(Mutex::new(conn)));
                 let proxy_settings = match db.0.lock() {
                     Ok(conn) => {
                         // Directly query proxy settings from the database
@@ -126,7 +126,7 @@ fn main() {
 
             // Re-open the connection for the app to manage
             let conn = init_database(&app.handle()).expect("Failed to initialize agents database");
-            app.manage(AgentDb(Mutex::new(conn)));
+            app.manage(AgentDb(std::sync::Arc::new(Mutex::new(conn))));
 
             // Initialize checkpoint state
             let checkpoint_state = CheckpointState::new();

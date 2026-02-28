@@ -462,9 +462,12 @@ export interface Message {
   project_id: string;
   sender_id: string;
   sender_name: string;
+  sender_avatar?: string; // icon
+  sender_color?: string;  // background color
   target_id: string;
   target_name?: string;
   content: string;
+  json_content?: string; // raw json from Claude
   message_type: string; // "user", "thinking", "response"
   created_at: string;
 }

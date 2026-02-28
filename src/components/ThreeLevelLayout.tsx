@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import {
   FolderOpen, FileText, Users, BarChart, MessageSquare, Settings,
   Search, Plus, MoreVertical, UserPlus, Smile, Scissors,
@@ -11,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Loader2, Check } from 'lucide-react';
+import { ICON_MAP } from "./IconPicker";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +26,7 @@ import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
 import { FloatingPromptInput } from './FloatingPromptInput';
 import { Teammates } from './Teammates';
-import { api, type Agent } from '@/lib/api';
+import { api, type Agent, type Message } from '@/lib/api';
 // 项目进度类型
 interface ProjectProgress {
   step: string;
@@ -106,6 +108,8 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
   const [loadingAvailableMembers, setLoadingAvailableMembers] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [isAddingMembers, setIsAddingMembers] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
 
   // 加载可选成员（排除 teamlead 角色，排除已添加到当前项目的成员）
   const loadAvailableMembers = async () => {
@@ -199,6 +203,9 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     setIsSending(true);
     try {
       await api.sendMessage(selectedProject.project_id, text.trim());
+      // 发送后立即刷新消息列表
+      const msgs = await api.getMessages(selectedProject.project_id);
+      setMessages(msgs);
     } catch (error) {
       console.error('Failed to send message:', error);
     } finally {
@@ -242,6 +249,47 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     };
 
     fetchProjectMembers();
+  }, [selectedProject]);
+
+  // 当选中项目变化时，获取项目消息
+  useEffect(() => {
+    const fetchMessages = async () => {
+      if (selectedProject) {
+        try {
+          setLoadingMessages(true);
+          const msgs = await api.getMessages(selectedProject.project_id);
+          setMessages(msgs);
+        } catch (error) {
+          console.error('Failed to fetch messages:', error);
+          setMessages([]);
+        } finally {
+          setLoadingMessages(false);
+        }
+      } else {
+        setMessages([]);
+      }
+    };
+
+    fetchMessages();
+
+    // 监听 agent 完成任务的事件，实时刷新消息
+    let unlisten: (() => void) | undefined;
+    const setupListener = async () => {
+      unlisten = await listen<string>('project-message-update', (event) => {
+        console.log('[ThreeLevelLayout] Received message update event:', event.payload);
+        // 如果事件中的 project_id 与当前选中的项目匹配，则刷新
+        if (selectedProject && event.payload === selectedProject.project_id) {
+          fetchMessages();
+        }
+      });
+    };
+
+    setupListener();
+
+    // 仅使用 Tauri 事件监听，不再使用定时刷新
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [selectedProject]);
 
   // 过滤项目
@@ -462,17 +510,85 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             </div>
           </div>
           <div className="flex-1 flex flex-col overflow-hidden" id="main-content-container">
-            {/* 上部分：中央内容区 */}
+            {/* 上部分：中央内容区 - 消息列表 */}
             <div
-              className="overflow-hidden"
+              className="overflow-hidden flex flex-col"
               style={{ height: `${dividerPosition}%` }}
             >
-              <div className="h-full w-full flex items-center justify-center text-gray-300">
-                <div className="text-center">
-                  <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg">中央内容区</p>
+              {loadingMessages ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
                 </div>
-              </div>
+              ) : messages.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center text-gray-300">
+                  <div className="text-center">
+                    <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg">暂无消息</p>
+                    <p className="text-sm mt-2">发送消息开始对话</p>
+                  </div>
+                </div>
+              ) : (
+                <ScrollArea className="flex-1 p-4">
+                  <div className="space-y-4">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={cn(
+                          "flex gap-3",
+                          msg.sender_id === 'user' ? "flex-row-reverse" : "flex-row"
+                        )}
+                      >
+                        {/* 头像：显示 icon 图标或名字首字母 */}
+                        <div className="flex-shrink-0">
+                          <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center text-white",
+                            msg.sender_id === 'user'
+                              ? "bg-blue-500"
+                              : "bg-gradient-to-br from-green-300 to-blue-300"
+                          )}>
+                            {msg.sender_avatar && ICON_MAP[msg.sender_avatar] ? (
+                              React.createElement(ICON_MAP[msg.sender_avatar], { className: "w-5 h-5" })
+                            ) : (
+                              <span className="text-sm">{msg.sender_name?.charAt(0) || '?'}</span>
+                            )}
+                          </div>
+                        </div>
+                        {/* 消息内容 */}
+                        <div className={cn(
+                          "flex flex-col max-w-[70%]",
+                          msg.sender_id === 'user' ? "items-end" : "items-start"
+                        )}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium text-gray-600">
+                              {msg.sender_id === 'user'
+                                ? `You -> ${msg.target_name || 'All'}`
+                                : `${msg.sender_name} -> You`}
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {new Date(msg.created_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <div
+                            className={cn(
+                              "rounded-lg px-4 py-2",
+                              msg.sender_id === 'user'
+                                ? "bg-blue-500 text-white"
+                                : msg.message_type === 'thinking'
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : "bg-gray-100 text-gray-800"
+                            )}
+                          >
+                            {msg.message_type === 'thinking' && (
+                              <div className="text-xs text-yellow-600 mb-1">💭 Thinking</div>
+                            )}
+                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
             </div>
 
             {/* 拖拽分隔条 */}
@@ -583,8 +699,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
               return 0;
             })).map((member) => (
               <div key={member.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/50 cursor-pointer">
-                <div className="w-8 h-8 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white text-xs">
-                  {member.name.charAt(0)}
+                {/* 头像：显示 icon 图标或名字首字母 */}
+                <div className="w-8 h-8 bg-gradient-to-br from-green-300 to-blue-300 rounded-full flex items-center justify-center text-white">
+                  {member.avatar && ICON_MAP[member.avatar] ? (
+                    React.createElement(ICON_MAP[member.avatar], { className: "w-5 h-5" })
+                  ) : (
+                    <span className="text-sm">{member.name.charAt(0)}</span>
+                  )}
                 </div>
                 <span className="text-sm">{member.name}</span>
                 {member.role_type === 'teamlead' && (

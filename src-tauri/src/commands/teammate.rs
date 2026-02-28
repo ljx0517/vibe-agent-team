@@ -1,14 +1,71 @@
 use log::{error, info, warn};
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use std::process::Stdio;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::claude_binary::find_claude_binary;
 use crate::commands::agents::{get_agent, AgentDb};
+use crate::commands::message::save_message_response_internal;
 use crate::process::ProcessRegistryState;
+
+/// Extract the final result from Claude's JSON output
+fn extract_result_from_output(output: &str) -> Option<String> {
+    // Look for the last JSON line with "result" field
+    for line in output.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Try to parse as JSON and extract "result" field
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if let Some(result) = json.get("result").and_then(|v| v.as_str()) {
+                if !result.is_empty() {
+                    return Some(result.to_string());
+                }
+            }
+            // Also check for "text" field in message content
+            if let Some(msg) = json.get("message") {
+                if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                    for item in content {
+                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                            if !text.is_empty() {
+                                return Some(text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Fallback: return last non-empty line
+    output.lines().rev().find(|l| !l.trim().is_empty()).map(|s| s.to_string())
+}
+
+/// Get agent info by run_id (project_agent id)
+fn get_agent_info_by_run_id(
+    conn: &rusqlite::Connection,
+    project_id: &str,
+    run_id: &str,
+) -> Result<(String, String), String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT pa.agent_id, a.name
+             FROM project_agents pa
+             INNER JOIN agents a ON pa.agent_id = a.id
+             WHERE pa.project_id = ?1 AND pa.id = ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    stmt.query_row(params![project_id, run_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .map_err(|e| format!("Agent not found for run_id: {}", e))
+}
 
 /// Agent settings parsed from JSON
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -200,7 +257,9 @@ pub async fn start_teammate_agent(
     app: AppHandle,
     agent_id: String,
     project_path: String,
+    project_id: String,
     model: Option<String>,
+    run_id: Option<String>,
     db: State<'_, AgentDb>,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<String, String> {
@@ -219,8 +278,8 @@ pub async fn start_teammate_agent(
     let settings = parse_agent_settings(&agent.settings);
     let hooks = parse_agent_hooks(&agent.hooks);
 
-    // Generate run_id
-    let run_id = Uuid::new_v4().to_string();
+    // Use provided run_id or generate new one
+    let run_id = run_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
     // Determine if we should skip permissions (for backwards compatibility, default to true)
     let skip_permissions = true;
@@ -349,8 +408,6 @@ pub async fn start_teammate_agent(
 
     info!("Claude args: {:?}", args);
 
-    info!("Claude args: {:?}", args);
-
     // Create and spawn the process
     let mut cmd = create_command_with_env(&claude_path);
 
@@ -397,6 +454,12 @@ pub async fn start_teammate_agent(
     let agent_name_clone = agent.name.clone();
     let model_clone = execution_model.clone();
 
+    // Clone registry for middleware
+    let registry_arc = registry.0.clone();
+    let project_path_for_middleware = project_path.clone();
+    let agent_id_for_middleware = agent_id.clone();
+    let project_id_for_middleware = project_id.clone();
+
     // Spawn stdout reader
     let stdout_task = tokio::spawn(async move {
         let stdout_reader = TokioBufReader::new(stdout);
@@ -411,6 +474,29 @@ pub async fn start_teammate_agent(
             // Emit to frontend
             let _ = app_handle.emit(&format!("teammate-output:{}", run_id_clone), &line);
             let _ = app_handle.emit("teammate-output", &line);
+
+            // Process teammate output for @mentions and forward
+            let registry_for_middleware = registry_arc.clone();
+            let project_path_clone = project_path_for_middleware.clone();
+            let run_id_for_middleware = run_id_clone.clone();
+            let agent_id_for_mw = agent_id_for_middleware.clone();
+            let project_id_for_mw = project_id_for_middleware.clone();
+
+            tokio::spawn(async move {
+                match crate::commands::message_middleware::process_teammate_output_by_path(
+                    &run_id_for_middleware,
+                    &project_path_clone,
+                    &agent_id_for_mw,
+                    &project_id_for_mw,
+                    &line,
+                    registry_for_middleware,
+                ).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::debug!("Message middleware error (non-fatal): {}", e);
+                    }
+                }
+            });
         }
 
         info!("Teammate stdout reader finished");
@@ -452,10 +538,14 @@ pub async fn start_teammate_agent(
 
     info!("Registered teammate agent with run_id: {}", run_id);
 
+    // Clone db for saving messages (Arc<Mutex<Connection>> can be cloned)
+    let db_arc = db.0.clone();
+
     // Spawn monitoring task
     let app_handle_monitor = app.clone();
     let registry_monitor = registry.0.clone();
     let run_id_monitor = run_id.clone();
+    let project_id_for_event = project_id.clone();
     tokio::spawn(async move {
         // Wait for stdout/stderr tasks to complete
         let _ = stdout_task.await;
@@ -463,9 +553,55 @@ pub async fn start_teammate_agent(
 
         info!("Teammate agent {} finished", run_id_monitor);
 
-        // Emit completion event
+        // Get live output and save response to database
+        if let Ok(live_output) = registry_monitor.get_live_output(run_id_monitor.clone()) {
+            info!("Agent output length: {} chars", live_output.len());
+
+            // Extract response content
+            if let Some(response_content) = extract_result_from_output(&live_output) {
+                if !response_content.trim().is_empty() {
+                    info!("Saving agent response to database: {} chars", response_content.len());
+
+                    // Clone values needed for spawn_blocking
+                    let db_clone = db_arc.clone();
+                    let project_id_for_db = project_id_for_event.clone();
+                    let run_id_for_db = run_id_monitor.clone();
+                    let app_clone = app_handle_monitor.clone();
+                    let project_id_for_emit = project_id_for_event.clone();
+                    let json_content = live_output.clone(); // Save raw json output
+
+                    let result = tokio::task::spawn_blocking(move || {
+                        save_message_response_internal(
+                            &db_clone,
+                            &project_id_for_db,
+                            &run_id_for_db,
+                            &response_content,
+                            &json_content,
+                            "response",
+                        )
+                    }).await;
+
+                    match result {
+                        Ok(Ok(msg)) => {
+                            info!("Agent response saved: {}", msg.id);
+                            // Emit message update event
+                            let _ = app_clone.emit("project-message-update", &project_id_for_emit);
+                        }
+                        Ok(Err(e)) => {
+                            error!("Failed to save agent response: {}", e);
+                        }
+                        Err(e) => {
+                            error!("Failed to spawn blocking task: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Emit completion event with project_id for frontend to refresh messages
         let _ = app_handle_monitor.emit(&format!("teammate-complete:{}", run_id_monitor), true);
         let _ = app_handle_monitor.emit("teammate-complete", true);
+        let _ = app_handle_monitor.emit("project-message-update", &project_id_for_event);
 
         // Unregister from registry
         let _ = registry_monitor.unregister_process(run_id_monitor);
@@ -519,4 +655,91 @@ pub async fn get_teammate_status(
     } else {
         Ok(None)
     }
+}
+
+/// Status of a project member's process
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberProcessStatus {
+    pub agent_id: String,
+    pub run_id: Option<String>,
+    pub status: String, // "stopped", "running", "error"
+}
+
+/// Get the status of all project members' processes
+#[tauri::command]
+pub async fn get_project_member_statuses(
+    project_id: String,
+    db: State<'_, AgentDb>,
+    registry: State<'_, ProcessRegistryState>,
+) -> Result<Vec<MemberProcessStatus>, String> {
+    // Get project path
+    let project_path = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT working_dir FROM projects WHERE id = ?1")
+            .map_err(|e| e.to_string())?;
+        stmt.query_row([&project_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Project not found: {}", e))?
+    };
+
+    // Get all project members with their run_ids (now uses pa.id)
+    let member_statuses = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT pa.agent_id, pa.id
+                 FROM project_agents pa
+                 WHERE pa.project_id = ?1"
+            )
+            .map_err(|e| e.to_string())?;
+
+        let members = stmt
+            .query_map([&project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        members
+    };
+
+    // Check each member's process status
+    let mut result: Vec<MemberProcessStatus> = Vec::new();
+    for (agent_id, stored_run_id) in member_statuses {
+        // stored_run_id is now pa.id (the run_id)
+        let run_id = stored_run_id;
+        let status = if registry.0.exists(&run_id).unwrap_or(false) {
+            // Check if there's an error state (process might have died)
+            if let Ok(Some(_info)) = registry.0.get_process(run_id.clone()) {
+                // Process is running
+                MemberProcessStatus {
+                    agent_id,
+                    run_id: Some(run_id),
+                    status: "running".to_string(),
+                }
+            } else {
+                // Process info not found
+                MemberProcessStatus {
+                    agent_id,
+                    run_id: Some(run_id),
+                    status: "running".to_string(),
+                }
+            }
+        } else {
+            // Process was stored but not running - might have crashed
+            // Still return the stored run_id (pa.id) so frontend can use it
+            MemberProcessStatus {
+                agent_id,
+                run_id: Some(run_id),
+                status: "stopped".to_string(),
+            }
+        };
+        result.push(status);
+    }
+
+    Ok(result)
 }
