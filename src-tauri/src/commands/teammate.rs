@@ -510,6 +510,9 @@ pub async fn start_teammate_agent(
     let agent_id_for_middleware = agent_id.clone();
     let project_id_for_middleware = project_id.clone();
 
+    // Clone db for message middleware
+    let db_for_output = db.0.clone();
+
     // Spawn stdout reader
     let stdout_task = tokio::spawn(async move {
         let stdout_reader = TokioBufReader::new(stdout);
@@ -525,21 +528,28 @@ pub async fn start_teammate_agent(
             let _ = app_handle.emit(&format!("teammate-output:{}", run_id_clone), &line);
             let _ = app_handle.emit("teammate-output", &line);
 
-            // Process teammate output for @mentions and forward
+            // Process teammate output through MessageMiddleware
+            // This handles: parsing, saving to DB, @mention forwarding, emitting to frontend
+            let db_for_output_clone = db_for_output.clone();
             let registry_for_middleware = registry_arc.clone();
             let project_path_clone = project_path_for_middleware.clone();
             let run_id_for_middleware = run_id_clone.clone();
-            let agent_id_for_mw = agent_id_for_middleware.clone();
             let project_id_for_mw = project_id_for_middleware.clone();
+            let app_handle_clone = app_handle.clone();
 
             tokio::spawn(async move {
-                match crate::commands::message_middleware::process_teammate_output_by_path(
-                    &run_id_for_middleware,
-                    &project_path_clone,
-                    &agent_id_for_mw,
-                    &project_id_for_mw,
-                    &line,
+                // Create middleware
+                let middleware = crate::commands::message_middleware::MessageMiddleware::new(
+                    db_for_output_clone,
                     registry_for_middleware,
+                );
+
+                // Handle outgoing message
+                match middleware.handle_outgoing(
+                    app_handle_clone,
+                    run_id_for_middleware.clone(),
+                    project_id_for_mw.clone(),
+                    line,
                 ).await {
                     Ok(_) => {}
                     Err(e) => {
