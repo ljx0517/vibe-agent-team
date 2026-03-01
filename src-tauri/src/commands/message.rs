@@ -266,6 +266,15 @@ pub async fn send_message(
 
     // Note: project_agents.id is used as run_id, no update needed
 
+    // Build JSON message for Claude (same format as build_claude_message in registry.rs)
+    let json_content = serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content.clone()
+        }
+    }).to_string();
+
     // Save message to database
     let message = Message {
         id: Uuid::new_v4().to_string(),
@@ -277,7 +286,7 @@ pub async fn send_message(
         target_id: target_agent_id,
         target_name: target_agent_name,
         content: content.clone(),
-        json_content: None,
+        json_content: Some(json_content),
         message_type: "user".to_string(),
         created_at: chrono::Utc::now().to_rfc3339(),
     };
