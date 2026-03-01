@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { OutputCacheProvider } from "@/lib/outputCache";
 import { TabProvider } from "@/contexts/TabContext";
 import { NFOCredits } from "@/components/NFOCredits";
 import { ClaudeBinaryDialog } from "@/components/ClaudeBinaryDialog";
@@ -171,11 +170,9 @@ function AppContent() {
  */
 function App() {
   return (
-    <OutputCacheProvider>
-      <TabProvider>
-        <AppContent />
-      </TabProvider>
-    </OutputCacheProvider>
+    <TabProvider>
+      <AppContent />
+    </TabProvider>
   );
 }
 

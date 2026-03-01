@@ -19,7 +19,6 @@ import { Badge } from '@/components/ui/badge';
 import { Toast, ToastContainer } from '@/components/ui/toast';
 import { Popover } from '@/components/ui/popover';
 import { api, type AgentRunWithMetrics } from '@/lib/api';
-import { useOutputCache } from '@/lib/outputCache';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { StreamMessage } from './StreamMessage';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -77,7 +76,6 @@ export function AgentRunOutputViewer({
   const fullscreenScrollRef = useRef<HTMLDivElement>(null);
   const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
-  const { getCachedOutput, setCachedOutput } = useOutputCache();
 
   // Auto-scroll logic
   const isAtBottom = () => {
@@ -138,33 +136,16 @@ export function AgentRunOutputViewer({
     }
   }, [messages, hasUserScrolled, isFullscreen]);
 
-  const loadOutput = async (skipCache = false) => {
+  const loadOutput = async () => {
     if (!run?.id) return;
 
     console.log('[AgentRunOutputViewer] Loading output for run:', {
       runId: run.id,
       status: run.status,
-      sessionId: run.session_id,
-      skipCache
+      sessionId: run.session_id
     });
 
     try {
-      // Check cache first if not skipping cache
-      if (!skipCache) {
-        const cached = getCachedOutput(run.id);
-        if (cached) {
-          console.log('[AgentRunOutputViewer] Found cached output');
-          const cachedJsonlLines = cached.output.split('\n').filter(line => line.trim());
-          setRawJsonlOutput(cachedJsonlLines);
-          setMessages(cached.messages);
-          // If cache is recent (less than 5 seconds old) and session isn't running, use cache only
-          if (Date.now() - cached.lastUpdated < 5000 && run.status !== 'running') {
-            console.log('[AgentRunOutputViewer] Using recent cache, skipping refresh');
-            return;
-          }
-        }
-      }
-
       setLoading(true);
 
       // If we have a session_id, try to load from JSONL file first
@@ -173,36 +154,28 @@ export function AgentRunOutputViewer({
         try {
           const history = await api.loadAgentSessionHistory(run.session_id);
           console.log('[AgentRunOutputViewer] Successfully loaded JSONL history:', history.length, 'messages');
-          
+
           // Convert history to messages format
           const loadedMessages: ClaudeStreamMessage[] = history.map(entry => ({
             ...entry,
             type: entry.type || "assistant"
           }));
-          
+
           setMessages(loadedMessages);
           setRawJsonlOutput(history.map(h => JSON.stringify(h)));
-          
-          // Update cache
-          setCachedOutput(run.id, {
-            output: history.map(h => JSON.stringify(h)).join('\n'),
-            messages: loadedMessages,
-            lastUpdated: Date.now(),
-            status: run.status
-          });
-          
+
           // Set up live event listeners for running sessions
           if (run.status === 'running') {
             console.log('[AgentRunOutputViewer] Setting up live listeners for running session');
             setupLiveEventListeners();
-            
+
             try {
               await api.streamSessionOutput(run.id);
             } catch (streamError) {
-              console.warn('[AgentRunOutputViewer] Failed to start streaming, will poll instead:', streamError);
+              console.warn('[AgentRunOutputViewer] Failed to start streaming:', streamError);
             }
           }
-          
+
           return;
         } catch (err) {
           console.warn('[AgentRunOutputViewer] Failed to load from JSONL:', err);
@@ -216,11 +189,11 @@ export function AgentRunOutputViewer({
       console.log('[AgentRunOutputViewer] Using getSessionOutput fallback');
       const rawOutput = await api.getSessionOutput(run.id);
       console.log('[AgentRunOutputViewer] Received raw output:', rawOutput.length, 'characters');
-      
+
       // Parse JSONL output into messages
       const jsonlLines = rawOutput.split('\n').filter(line => line.trim());
       setRawJsonlOutput(jsonlLines);
-      
+
       const parsedMessages: ClaudeStreamMessage[] = [];
       for (const line of jsonlLines) {
         try {
@@ -232,24 +205,16 @@ export function AgentRunOutputViewer({
       }
       console.log('[AgentRunOutputViewer] Parsed', parsedMessages.length, 'messages from output');
       setMessages(parsedMessages);
-      
-      // Update cache
-      setCachedOutput(run.id, {
-        output: rawOutput,
-        messages: parsedMessages,
-        lastUpdated: Date.now(),
-        status: run.status
-      });
-      
+
       // Set up live event listeners for running sessions
       if (run.status === 'running') {
         console.log('[AgentRunOutputViewer] Setting up live listeners for running session (fallback)');
         setupLiveEventListeners();
-        
+
         try {
           await api.streamSessionOutput(run.id);
         } catch (streamError) {
-          console.warn('[AgentRunOutputViewer] Failed to start streaming (fallback), will poll instead:', streamError);
+          console.warn('[AgentRunOutputViewer] Failed to start streaming (fallback):', streamError);
         }
       }
     } catch (error) {
@@ -427,7 +392,7 @@ export function AgentRunOutputViewer({
         updateTabStatus(tabId, 'idle');
         
         // Refresh the output to get updated status
-        await loadOutput(true);
+        await loadOutput();
       } else {
         console.warn(`[AgentRunOutputViewer] Failed to stop agent session ${run.id} - it may have already finished`);
         setToast({ message: 'Failed to stop agent - it may have already finished', type: 'error' });
@@ -451,16 +416,6 @@ export function AgentRunOutputViewer({
   // Load output on mount
   useEffect(() => {
     if (!run?.id) return;
-    
-    // Check cache immediately for instant display
-    const cached = getCachedOutput(run!.id);
-    if (cached) {
-      const cachedJsonlLines = cached.output.split('\n').filter(line => line.trim());
-      setRawJsonlOutput(cachedJsonlLines);
-      setMessages(cached.messages);
-    }
-    
-    // Then load fresh data
     loadOutput();
   }, [run?.id]);
 

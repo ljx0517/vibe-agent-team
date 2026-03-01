@@ -5,7 +5,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Project, type Session, type ClaudeMdFile } from "@/lib/api";
 import { initializeWebMode } from "@/lib/apiAdapter";
-import { OutputCacheProvider } from "@/lib/outputCache";
 import { TabProvider } from "@/contexts/TabContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { Card } from "@/components/ui/card";
@@ -697,12 +696,10 @@ function App() {
   return (
     <ThemeProvider>
       <TooltipProvider>
-        <OutputCacheProvider>
-          <TabProvider>
-            <AppContent />
-            <StartupIntro visible={showIntro} />
-          </TabProvider>
-        </OutputCacheProvider>
+        <TabProvider>
+          <AppContent />
+          <StartupIntro visible={showIntro} />
+        </TabProvider>
       </TooltipProvider>
     </ThemeProvider>
   );

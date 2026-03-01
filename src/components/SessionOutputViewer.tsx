@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Toast, ToastContainer } from '@/components/ui/toast';
 import { Popover } from '@/components/ui/popover';
 import { api } from '@/lib/api';
-import { useOutputCache } from '@/lib/outputCache';
 import type { AgentRun } from '@/lib/api';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { StreamMessage } from './StreamMessage';
@@ -52,7 +51,6 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const fullscreenScrollRef = useRef<HTMLDivElement>(null);
   const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
-  const { getCachedOutput, setCachedOutput } = useOutputCache();
 
   // Auto-scroll logic similar to AgentExecution
   const isAtBottom = () => {
@@ -90,24 +88,10 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   }, [messages, hasUserScrolled, isFullscreen]);
 
 
-  const loadOutput = async (skipCache = false) => {
+  const loadOutput = async () => {
     if (!session.id) return;
 
     try {
-      // Check cache first if not skipping cache
-      if (!skipCache) {
-        const cached = getCachedOutput(session.id);
-        if (cached) {
-          const cachedJsonlLines = cached.output.split('\n').filter(line => line.trim());
-          setRawJsonlOutput(cachedJsonlLines);
-          setMessages(cached.messages);
-          // If cache is recent (less than 5 seconds old) and session isn't running, use cache only
-          if (Date.now() - cached.lastUpdated < 5000 && session.status !== 'running') {
-            return;
-          }
-        }
-      }
-
       setLoading(true);
 
       // If we have a session_id, try to load from JSONL file first
@@ -123,15 +107,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
           
           setMessages(loadedMessages);
           setRawJsonlOutput(history.map(h => JSON.stringify(h)));
-          
-          // Update cache
-          setCachedOutput(session.id, {
-            output: history.map(h => JSON.stringify(h)).join('\n'),
-            messages: loadedMessages,
-            lastUpdated: Date.now(),
-            status: session.status
-          });
-          
+
           // Set up live event listeners for running sessions
           if (session.status === 'running') {
             setupLiveEventListeners();
@@ -166,15 +142,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
         }
       }
       setMessages(parsedMessages);
-      
-      // Update cache
-      setCachedOutput(session.id, {
-        output: rawOutput,
-        messages: parsedMessages,
-        lastUpdated: Date.now(),
-        status: session.status
-      });
-      
+
       // Set up live event listeners for running sessions
       if (session.status === 'running') {
         setupLiveEventListeners();
@@ -302,7 +270,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const refreshOutput = async () => {
     setRefreshing(true);
     try {
-      await loadOutput(true); // Skip cache when manually refreshing
+      await loadOutput();
       setToast({ message: 'Output refreshed', type: 'success' });
     } catch (error) {
       console.error('Failed to refresh output:', error);
@@ -313,19 +281,9 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   };
 
 
-  // Load output on mount and check cache first
+  // Load output on mount
   useEffect(() => {
     if (!session.id) return;
-    
-    // Check cache immediately for instant display
-    const cached = getCachedOutput(session.id);
-    if (cached) {
-      const cachedJsonlLines = cached.output.split('\n').filter(line => line.trim());
-      setRawJsonlOutput(cachedJsonlLines);
-      setMessages(cached.messages);
-    }
-    
-    // Then load fresh data
     loadOutput();
   }, [session.id]);
 
