@@ -313,10 +313,17 @@ impl MessageMiddleware {
     ) -> Result<Option<Message>, String> {
         info!("MessageMiddleware::handle_outgoing: run_id={}", run_id);
 
-        // Check if this is a system-init message (should save to DB but not emit to frontend)
-        let is_system_init = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output) {
-            json.get("type").and_then(|v| v.as_str()) == Some("system")
-                && json.get("subtype").and_then(|v| v.as_str()) == Some("init")
+        // Check if this is a message that should be saved but not emitted to frontend:
+        // - system-init: agent initialization info
+        // - result: statistics/summary after completion
+        let should_skip_emit = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output) {
+            let msg_type = json.get("type").and_then(|v| v.as_str());
+            let subtype = json.get("subtype").and_then(|v| v.as_str());
+
+            // system-init: agent initialization
+            (msg_type == Some("system") && subtype == Some("init"))
+                // result: statistics after completion (has cost, duration, usage info)
+                || msg_type == Some("result")
         } else {
             false
         };
@@ -352,16 +359,16 @@ impl MessageMiddleware {
             self.handle_mention_forward(&run_id, &project_id, &message.content).await?;
         }
 
-        // Step 6: Emit to frontend (skip system-init messages - they are saved but not displayed)
-        if !is_system_init {
-            let _ = app.emit("project-message-update", &project_id);
+        // Step 6: Emit to frontend (skip system-init and result messages - they are saved but not displayed)
+        if !should_skip_emit {
+            let _ = app.emit("new-message", &message);
         }
 
         info!(
             "Saved {} message: {} (emit: {})",
             message_type.as_str(),
             message.id,
-            !is_system_init
+            !should_skip_emit
         );
 
         Ok(Some(message))
@@ -373,16 +380,38 @@ impl MessageMiddleware {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(output) {
             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("response");
 
-            let content = if msg_type == "thinking" {
-                // For thinking, get the thinking content
+            // Check for thinking content in two formats:
+            // 1. {"type":"thinking", "thinking":"..."}
+            // 2. {"type":"assistant", "message":{"content":[{"type":"thinking", "thinking":"..."}]}}
+            let thinking_content = if msg_type == "thinking" {
                 json.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else if msg_type == "assistant" {
+                if let Some(msg) = json.get("message") {
+                    if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                        for item in content {
+                            if item.get("type").and_then(|v| v.as_str()) == Some("thinking") {
+                                if let Some(thinking) = item.get("thinking").and_then(|t| t.as_str()) {
+                                    if !thinking.is_empty() {
+                                        return Ok((MessageType::Thinking, thinking.to_string()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                None
             } else {
-                // For result/response, get the result or message text
-                json.get("result").and_then(|v| v.as_str()).map(|s| s.to_string())
-                    .or_else(|| {
-                        if let Some(msg) = json.get("message") {
-                            if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
-                                for item in content {
+                None
+            };
+
+            // Get response text content
+            let response_content = json.get("result").and_then(|v| v.as_str()).map(|s| s.to_string())
+                .or_else(|| {
+                    if let Some(msg) = json.get("message") {
+                        if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                            for item in content {
+                                // Skip thinking blocks, get text blocks
+                                if item.get("type").and_then(|v| v.as_str()) != Some("thinking") {
                                     if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                                         if !text.is_empty() {
                                             return Some(text.to_string());
@@ -391,18 +420,20 @@ impl MessageMiddleware {
                                 }
                             }
                         }
-                        None
-                    })
-            };
+                    }
+                    None
+                });
 
-            if let Some(text) = content {
+            // Return thinking if available, otherwise response
+            if let Some(text) = thinking_content {
                 if !text.trim().is_empty() {
-                    let mt = if msg_type == "thinking" {
-                        MessageType::Thinking
-                    } else {
-                        MessageType::Response
-                    };
-                    return Ok((mt, text));
+                    return Ok((MessageType::Thinking, text));
+                }
+            }
+
+            if let Some(text) = response_content {
+                if !text.trim().is_empty() {
+                    return Ok((MessageType::Response, text));
                 }
             }
         }

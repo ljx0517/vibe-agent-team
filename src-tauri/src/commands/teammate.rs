@@ -746,10 +746,9 @@ pub async fn start_teammate_agent(
         //     }
         // }
 
-        // Emit completion event with project_id for frontend to refresh messages
+        // Emit completion event (新消息已通过 MessageMiddleware 实时 emit，不需要再刷新)
         let _ = app_handle_monitor.emit(&format!("teammate-complete:{}", run_id_monitor), true);
         let _ = app_handle_monitor.emit("teammate-complete", true);
-        let _ = app_handle_monitor.emit("project-message-update", &project_id_for_event);
 
         // Update member status to completed and emit event
         if let Some((project_id, agent_id)) = get_run_id_mapping(&run_id_monitor) {

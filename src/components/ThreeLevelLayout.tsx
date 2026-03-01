@@ -324,14 +324,14 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
 
     fetchMessages();
 
-    // 监听 agent 完成任务的事件，实时刷新消息
+    // 监听新消息事件，直接添加到消息列表
     let unlisten: (() => void) | undefined;
     const setupListener = async () => {
-      unlisten = await listen<string>('project-message-update', (event) => {
-        console.log('[ThreeLevelLayout] Received message update event:', event.payload);
-        // 如果事件中的 project_id 与当前选中的项目匹配，则刷新
-        if (selectedProject && event.payload === selectedProject.project_id) {
-          fetchMessages();
+      unlisten = await listen<Message>('new-message', (event) => {
+        console.log('[ThreeLevelLayout] Received new message:', event.payload);
+        // 只有当前选中的项目匹配时才添加消息
+        if (selectedProject && event.payload.project_id === selectedProject.project_id) {
+          setMessages(prev => [...prev, event.payload]);
         }
       });
     };
