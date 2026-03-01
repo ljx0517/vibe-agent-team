@@ -1305,11 +1305,24 @@ async fn spawn_claude_process(
             }
 
             // Emit the line to the frontend with session isolation if we have session ID
+            // Skip init messages - they don't need to be displayed in chat but are saved to DB
             if let Some(ref session_id) = *session_id_holder_clone.lock().unwrap() {
-                let _ = app_handle.emit(&format!("claude-output:{}", session_id), &line);
+                let should_emit = if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
+                    !(msg["type"] == "system" && msg["subtype"] == "init")
+                } else {
+                    true
+                };
+
+                if should_emit {
+                    let _ = app_handle.emit(&format!("claude-output:{}", session_id), &line);
+                }
             }
-            // Also emit to the generic event for backward compatibility
-            let _ = app_handle.emit("claude-output", &line);
+            // Also emit to the generic event for backward compatibility (skip init as well)
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
+                if !(msg["type"] == "system" && msg["subtype"] == "init") {
+                    let _ = app_handle.emit("claude-output", &line);
+                }
+            }
         }
     });
 

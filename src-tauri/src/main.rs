@@ -47,7 +47,7 @@ use commands::usage::{
     get_session_stats, get_usage_by_date_range, get_usage_details, get_usage_stats,
 };
 use commands::teammate::{
-    get_teammate_status, send_to_teammate, start_teammate_agent, stop_teammate_agent,
+    get_project_member_statuses, get_teammate_status, send_to_teammate, start_teammate_agent, stop_teammate_agent,
 };
 use commands::message::{
     get_messages, save_message_response, send_message,
@@ -313,6 +313,7 @@ fn main() {
             send_to_teammate,
             stop_teammate_agent,
             get_teammate_status,
+            get_project_member_statuses,
             // Message
             send_message,
             get_messages,

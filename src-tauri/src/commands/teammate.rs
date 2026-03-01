@@ -1,6 +1,7 @@
 use log::{error, info, warn};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter, State};
@@ -12,6 +13,66 @@ use crate::claude_binary::find_claude_binary;
 use crate::commands::agents::{get_agent, AgentDb};
 use crate::commands::message::save_message_response_internal;
 use crate::process::ProcessRegistryState;
+
+/// Member status stored in memory
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberStatus {
+    pub agent_id: String,
+    pub run_id: Option<String>,
+    pub status: String, // "pending", "running", "completed", "stopped", "error"
+}
+
+/// Update member status in memory and emit event
+fn update_member_status(
+    app: &AppHandle,
+    project_id: &str,
+    agent_id: &str,
+    run_id: Option<String>,
+    status: &str,
+) {
+    let mut statuses = MEMBER_STATUS.lock().unwrap();
+    let project_statuses = statuses.entry(project_id.to_string()).or_insert_with(HashMap::new);
+
+    project_statuses.insert(
+        agent_id.to_string(),
+        MemberStatus {
+            agent_id: agent_id.to_string(),
+            run_id,
+            status: status.to_string(),
+        },
+    );
+
+    // Emit event to frontend
+    let _ = app.emit(&format!("member-status-update:{}", project_id), ());
+    let _ = app.emit("member-status-update", project_id);
+}
+
+// Global member status storage (lazily initialized)
+lazy_static::lazy_static! {
+    static ref MEMBER_STATUS: Arc<Mutex<HashMap<String, HashMap<String, MemberStatus>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    // Map run_id to (project_id, agent_id)
+    static ref RUN_ID_MAPPING: Arc<Mutex<HashMap<String, (String, String)>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+}
+
+/// Save run_id mapping for later lookup
+fn save_run_id_mapping(run_id: &str, project_id: &str, agent_id: &str) {
+    let mut mapping = RUN_ID_MAPPING.lock().unwrap();
+    mapping.insert(run_id.to_string(), (project_id.to_string(), agent_id.to_string()));
+}
+
+/// Get project_id and agent_id from run_id
+fn get_run_id_mapping(run_id: &str) -> Option<(String, String)> {
+    let mapping = RUN_ID_MAPPING.lock().unwrap();
+    mapping.get(run_id).cloned()
+}
+
+/// Remove run_id mapping
+fn remove_run_id_mapping(run_id: &str) {
+    let mut mapping = RUN_ID_MAPPING.lock().unwrap();
+    mapping.remove(run_id);
+}
 
 /// Extract the final result from Claude's JSON output
 fn extract_result_from_output(output: &str) -> Option<String> {
@@ -524,9 +585,18 @@ pub async fn start_teammate_agent(
             // Store live output
             let _ = registry_clone.append_live_output(run_id_clone.clone(), &line);
 
-            // Emit to frontend
-            let _ = app_handle.emit(&format!("teammate-output:{}", run_id_clone), &line);
-            let _ = app_handle.emit("teammate-output", &line);
+            // 只使用消息中间件传递消息，不直接emit， 也不需要过滤消息，是否过滤消息由消息中间件判断
+            // Emit to frontend (skip init messages - they don't need to be displayed but are saved to DB)
+            // let should_emit = if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
+            //     !(msg["type"] == "system" && msg["subtype"] == "init")
+            // } else {
+            //     true
+            // };
+            //
+            // if should_emit {
+            //     let _ = app_handle.emit(&format!("teammate-output:{}", run_id_clone), &line);
+            //     let _ = app_handle.emit("teammate-output", &line);
+            // }
 
             // Process teammate output through MessageMiddleware
             // This handles: parsing, saving to DB, @mention forwarding, emitting to frontend
@@ -585,7 +655,7 @@ pub async fn start_teammate_agent(
         .0
         .register_teammate_agent(
             run_id.clone(),
-            agent_id_clone,
+            agent_id_clone.clone(),
             agent_name_clone,
             pid,
             project_path_clone,
@@ -597,6 +667,12 @@ pub async fn start_teammate_agent(
         .map_err(|e| format!("Failed to register teammate agent: {}", e))?;
 
     info!("Registered teammate agent with run_id: {}", run_id);
+
+    // Update member status to running and emit event
+    update_member_status(&app, &project_id, &agent_id, Some(run_id.clone()), "running");
+
+    // Save run_id mapping for later lookup (when stopping/completing)
+    save_run_id_mapping(&run_id, &project_id, &agent_id);
 
     // Clone db for saving messages (Arc<Mutex<Connection>> can be cloned)
     let db_arc = db.0.clone();
@@ -613,66 +689,74 @@ pub async fn start_teammate_agent(
 
         info!("Teammate agent {} finished", run_id_monitor);
 
-        // Get live output and save all messages (thinking and response) to database
-        if let Ok(live_output) = registry_monitor.get_live_output(run_id_monitor.clone()) {
-            info!("Agent output length: {} chars", live_output.len());
-
-            // Extract all messages (thinking and response)
-            let all_messages = extract_all_messages(&live_output);
-            if !all_messages.is_empty() {
-                info!("Found {} messages to save", all_messages.len());
-
-                // Clone values needed for spawn_blocking
-                let db_clone = db_arc.clone();
-                let project_id_for_db = project_id_for_event.clone();
-                let run_id_for_db = run_id_monitor.clone();
-                let app_clone = app_handle_monitor.clone();
-                let project_id_for_emit = project_id_for_event.clone();
-                let json_content = live_output.clone(); // Save raw json output
-
-                let result: Result<Result<usize, String>, tokio::task::JoinError> = tokio::task::spawn_blocking(move || {
-                    let mut saved_count = 0;
-                    for (msg_type, content) in all_messages {
-                        match save_message_response_internal(
-                            &db_clone,
-                            &project_id_for_db,
-                            &run_id_for_db,
-                            &content,
-                            &json_content,
-                            &msg_type,
-                        ) {
-                            Ok(msg) => {
-                                info!("Saved {} message: {}", msg_type, msg.id);
-                                saved_count += 1;
-                            }
-                            Err(e) => {
-                                error!("Failed to save {} message: {}", msg_type, e);
-                            }
-                        }
-                    }
-                    Ok(saved_count)
-                }).await;
-
-                match result {
-                    Ok(Ok(count)) => {
-                        info!("Saved {} messages to database", count);
-                        // Emit message update event
-                        let _ = app_clone.emit("project-message-update", &project_id_for_emit);
-                    }
-                    Ok(Err(e)) => {
-                        error!("Failed to save messages: {}", e);
-                    }
-                    Err(e) => {
-                        error!("Failed to spawn blocking task: {}", e);
-                    }
-                }
-            }
-        }
+        // [已注释] 消息保存已由 MessageMiddleware.handle_outgoing() 实时处理，不再需要批量保存
+        // // Get live output and save all messages (thinking and response) to database
+        // if let Ok(live_output) = registry_monitor.get_live_output(run_id_monitor.clone()) {
+        //     info!("Agent output length: {} chars", live_output.len());
+        //
+        //     // Extract all messages (thinking and response)
+        //     let all_messages = extract_all_messages(&live_output);
+        //     if !all_messages.is_empty() {
+        //         info!("Found {} messages to save", all_messages.len());
+        //
+        //         // Clone values needed for spawn_blocking
+        //         let db_clone = db_arc.clone();
+        //         let project_id_for_db = project_id_for_event.clone();
+        //         let run_id_for_db = run_id_monitor.clone();
+        //         let app_clone = app_handle_monitor.clone();
+        //         let project_id_for_emit = project_id_for_event.clone();
+        //         let json_content = live_output.clone(); // Save raw json output
+        //
+        //         let result: Result<Result<usize, String>, tokio::task::JoinError> = tokio::task::spawn_blocking(move || {
+        //             let mut saved_count = 0;
+        //             for (msg_type, content) in all_messages {
+        //                 match save_message_response_internal(
+        //                     &db_clone,
+        //                     &project_id_for_db,
+        //                     &run_id_for_db,
+        //                     &content,
+        //                     &json_content,
+        //                     &msg_type,
+        //                 ) {
+        //                     Ok(msg) => {
+        //                         info!("Saved {} message: {}", msg_type, msg.id);
+        //                         saved_count += 1;
+        //                     }
+        //                     Err(e) => {
+        //                         error!("Failed to save {} message: {}", msg_type, e);
+        //                     }
+        //                 }
+        //             }
+        //             Ok(saved_count)
+        //         }).await;
+        //
+        //         match result {
+        //             Ok(Ok(count)) => {
+        //                 info!("Saved {} messages to database", count);
+        //                 // Emit message update event
+        //                 let _ = app_clone.emit("project-message-update", &project_id_for_emit);
+        //             }
+        //             Ok(Err(e)) => {
+        //                 error!("Failed to save messages: {}", e);
+        //             }
+        //             Err(e) => {
+        //                 error!("Failed to spawn blocking task: {}", e);
+        //             }
+        //         }
+        //     }
+        // }
 
         // Emit completion event with project_id for frontend to refresh messages
         let _ = app_handle_monitor.emit(&format!("teammate-complete:{}", run_id_monitor), true);
         let _ = app_handle_monitor.emit("teammate-complete", true);
         let _ = app_handle_monitor.emit("project-message-update", &project_id_for_event);
+
+        // Update member status to completed and emit event
+        if let Some((project_id, agent_id)) = get_run_id_mapping(&run_id_monitor) {
+            update_member_status(&app_handle_monitor, &project_id, &agent_id, Some(run_id_monitor.clone()), "completed");
+            // Remove mapping
+            remove_run_id_mapping(&run_id_monitor);
+        }
 
         // Unregister from registry
         let _ = registry_monitor.unregister_process(run_id_monitor);
@@ -700,6 +784,7 @@ pub async fn send_to_teammate(
 #[tauri::command]
 pub async fn stop_teammate_agent(
     run_id: String,
+    app: AppHandle,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<bool, String> {
     info!("Stopping teammate agent: {}", run_id);
@@ -708,6 +793,11 @@ pub async fn stop_teammate_agent(
 
     if result {
         info!("Successfully stopped teammate agent: {}", run_id);
+        // Update member status to stopped and emit event
+        if let Some((project_id, agent_id)) = get_run_id_mapping(&run_id) {
+            update_member_status(&app, &project_id, &agent_id, Some(run_id.clone()), "stopped");
+            remove_run_id_mapping(&run_id);
+        }
     } else {
         warn!("Failed to stop teammate agent: {}", run_id);
     }
@@ -733,7 +823,7 @@ pub async fn get_teammate_status(
 pub struct MemberProcessStatus {
     pub agent_id: String,
     pub run_id: Option<String>,
-    pub status: String, // "stopped", "running", "error"
+    pub status: String, // "pending", "running", "completed", "stopped", "error"
 }
 
 /// Get the status of all project members' processes
@@ -743,16 +833,6 @@ pub async fn get_project_member_statuses(
     db: State<'_, AgentDb>,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<Vec<MemberProcessStatus>, String> {
-    // Get project path
-    let project_path = {
-        let conn = db.0.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn
-            .prepare("SELECT working_dir FROM projects WHERE id = ?1")
-            .map_err(|e| e.to_string())?;
-        stmt.query_row([&project_id], |row| row.get::<_, String>(0))
-            .map_err(|e| format!("Project not found: {}", e))?
-    };
-
     // Get all project members with their run_ids (now uses pa.id)
     let member_statuses = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -778,38 +858,57 @@ pub async fn get_project_member_statuses(
         members
     };
 
+    // Get statuses from memory
+    let mem_statuses = MEMBER_STATUS.lock().unwrap();
+    let project_mem_statuses = mem_statuses.get(&project_id);
+
     // Check each member's process status
     let mut result: Vec<MemberProcessStatus> = Vec::new();
     for (agent_id, stored_run_id) in member_statuses {
-        // stored_run_id is now pa.id (the run_id)
         let run_id = stored_run_id;
-        let status = if registry.0.exists(&run_id).unwrap_or(false) {
-            // Check if there's an error state (process might have died)
-            if let Ok(Some(_info)) = registry.0.get_process(run_id.clone()) {
-                // Process is running
-                MemberProcessStatus {
-                    agent_id,
-                    run_id: Some(run_id),
-                    status: "running".to_string(),
-                }
-            } else {
-                // Process info not found
-                MemberProcessStatus {
-                    agent_id,
-                    run_id: Some(run_id),
-                    status: "running".to_string(),
+
+        // First check memory status
+        if let Some(project_statuses) = project_mem_statuses {
+            if let Some(mem_status) = project_statuses.get(&agent_id) {
+                // If we have a valid run_id and the status is still valid (running exists in registry)
+                if mem_status.run_id.as_ref() == Some(&run_id) {
+                    if mem_status.status == "running" {
+                        // Verify process is still actually running
+                        if registry.0.exists(&run_id).unwrap_or(false) {
+                            result.push(MemberProcessStatus {
+                                agent_id,
+                                run_id: Some(run_id),
+                                status: "running".to_string(),
+                            });
+                            continue;
+                        } else {
+                            // Process died unexpectedly - mark as error
+                            result.push(MemberProcessStatus {
+                                agent_id,
+                                run_id: Some(run_id),
+                                status: "error".to_string(),
+                            });
+                            continue;
+                        }
+                    } else {
+                        // Return the stored status (completed, stopped, error)
+                        result.push(MemberProcessStatus {
+                            agent_id,
+                            run_id: Some(run_id),
+                            status: mem_status.status.clone(),
+                        });
+                        continue;
+                    }
                 }
             }
-        } else {
-            // Process was stored but not running - might have crashed
-            // Still return the stored run_id (pa.id) so frontend can use it
-            MemberProcessStatus {
-                agent_id,
-                run_id: Some(run_id),
-                status: "stopped".to_string(),
-            }
-        };
-        result.push(status);
+        }
+
+        // Default: not started yet
+        result.push(MemberProcessStatus {
+            agent_id,
+            run_id: Some(run_id),
+            status: "pending".to_string(),
+        });
     }
 
     Ok(result)

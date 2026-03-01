@@ -20,6 +20,7 @@ dependencies = [
  "git-tools",
  "glob",
  "image",
+ "lazy_static",
  "libc",
  "log",
  "objc",

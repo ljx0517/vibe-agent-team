@@ -303,7 +303,7 @@ impl MessageMiddleware {
     /// 2. Build structured JSON
     /// 3. Save to database
     /// 4. Detect @mention and forward
-    /// 5. Push to frontend
+    /// 5. Push to frontend (skip system-init messages)
     pub async fn handle_outgoing(
         &self,
         app: AppHandle,
@@ -312,6 +312,14 @@ impl MessageMiddleware {
         output: String,
     ) -> Result<Option<Message>, String> {
         info!("MessageMiddleware::handle_outgoing: run_id={}", run_id);
+
+        // Check if this is a system-init message (should save to DB but not emit to frontend)
+        let is_system_init = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output) {
+            json.get("type").and_then(|v| v.as_str()) == Some("system")
+                && json.get("subtype").and_then(|v| v.as_str()) == Some("init")
+        } else {
+            false
+        };
 
         // Step 1: Parse message type from output
         let (message_type, content) = self.parse_agent_output(&output)?;
@@ -344,13 +352,16 @@ impl MessageMiddleware {
             self.handle_mention_forward(&run_id, &project_id, &message.content).await?;
         }
 
-        // Step 6: Emit to frontend
-        let _ = app.emit("project-message-update", &project_id);
+        // Step 6: Emit to frontend (skip system-init messages - they are saved but not displayed)
+        if !is_system_init {
+            let _ = app.emit("project-message-update", &project_id);
+        }
 
         info!(
-            "Saved {} message: {}",
+            "Saved {} message: {} (emit: {})",
             message_type.as_str(),
-            message.id
+            message.id,
+            !is_system_init
         );
 
         Ok(Some(message))
