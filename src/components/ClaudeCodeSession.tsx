@@ -206,6 +206,11 @@ export const ClaudeCodeSession: React.FC<ClaudeCodeSessionProps> = ({
         return false;
       }
 
+      // Skip system messages (e.g., init messages like {"type":"system","subtype":"init"})
+      if (message.type === "system") {
+        return false;
+      }
+
       // Skip user messages that only contain tool results that are already displayed
       if (message.type === "user" && message.message) {
         if (message.isMeta) return false;

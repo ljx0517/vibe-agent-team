@@ -731,8 +731,8 @@ export const StorageTab: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
           {deletingRow && (
-            <div className="rounded-md bg-muted p-4">
-              <pre className="text-xs font-mono overflow-x-auto max-h-[200px] overflow-y-auto">
+            <div className="rounded-md bg-muted p-4 max-h-[250px] overflow-auto">
+              <pre className="text-xs font-mono whitespace-pre-wrap break-all">
                 {JSON.stringify(
                   Object.fromEntries(
                     Object.entries(deletingRow).map(([key, value]) => [

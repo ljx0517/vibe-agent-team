@@ -421,7 +421,11 @@ export function AgentRunOutputViewer({
 
   const displayableMessages = useMemo(() => {
     return messages.filter((message) => {
+      // Skip meta messages without meaningful content
       if (message.isMeta && !message.leafUuid && !message.summary) return false;
+
+      // Skip system messages (e.g., init messages like {"type":"system","subtype":"init"})
+      if (message.type === "system") return false;
 
       if (message.type === "user" && message.message) {
         if (message.isMeta) return false;

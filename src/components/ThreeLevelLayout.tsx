@@ -49,6 +49,7 @@ interface Member {
   name: string;
   avatar?: string;
   role_type?: string;
+  status?: "pending" | "running" | "completed" | "stopped" | "error";
 }
 
 // 左侧导航项
@@ -239,6 +240,21 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
             role_type: agent.role_type,
           }));
           setProjectMembers(members);
+
+          // 获取成员进程状态
+          try {
+            const statuses = await api.getProjectMemberStatuses(selectedProject.project_id);
+            // 将状态映射到成员
+            setProjectMembers(prev => prev.map(member => {
+              const statusInfo = statuses.find(s => s.agent_id === member.id);
+              return {
+                ...member,
+                status: statusInfo?.status as "pending" | "running" | "completed" | "stopped" | "error" | undefined,
+              };
+            }));
+          } catch (statusError) {
+            console.error('Failed to fetch member statuses:', statusError);
+          }
         } catch (error) {
           console.error('Failed to fetch project members:', error);
           setProjectMembers([]);
@@ -249,6 +265,42 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
     };
 
     fetchProjectMembers();
+  }, [selectedProject]);
+
+  // 监听成员状态更新事件，实时刷新成员状态
+  useEffect(() => {
+    if (!selectedProject) return;
+
+    const fetchMemberStatuses = async () => {
+      try {
+        const statuses = await api.getProjectMemberStatuses(selectedProject.project_id);
+        setProjectMembers(prev => prev.map(member => {
+          const statusInfo = statuses.find(s => s.agent_id === member.id);
+          return {
+            ...member,
+            status: statusInfo?.status as "pending" | "running" | "completed" | "stopped" | "error" | undefined,
+          };
+        }));
+      } catch (statusError) {
+        console.error('Failed to fetch member statuses:', statusError);
+      }
+    };
+
+    let unlisten: (() => void) | undefined;
+    const setupListener = async () => {
+      unlisten = await listen(`member-status-update:${selectedProject.project_id}`, () => {
+        console.log('[ThreeLevelLayout] Member status updated, refreshing...');
+        fetchMemberStatuses();
+      });
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
   }, [selectedProject]);
 
   // 当选中项目变化时，获取项目消息
@@ -481,7 +533,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
 
   // 渲染第三栏 - 主内容区
   const renderMainContent = () => (
-    <div className="flex-1 bg-white flex flex-col">
+    <div className="flex-1 bg-white flex flex-col overflow-hidden">
       {selectedProject ? (
         <>
           {/* 顶部标题栏 */}
@@ -509,7 +561,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
               </motion.button>
             </div>
           </div>
-          <div className="flex-1 flex flex-col overflow-hidden" id="main-content-container">
+          <div className="flex-1 flex flex-col overflow-hidden" name={"项目聊天窗口"} id="main-content-container">
             {/* 上部分：中央内容区 - 消息列表 */}
             <div
               className="overflow-hidden flex flex-col"
@@ -570,7 +622,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                           </div>
                           <div
                             className={cn(
-                              "rounded-lg px-4 py-2",
+                              "rounded-lg px-4 py-2 w-full",
                               msg.sender_id === 'user'
                                 ? "bg-blue-500 text-white"
                                 : msg.message_type === 'thinking'
@@ -581,7 +633,7 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                             {msg.message_type === 'thinking' && (
                               <div className="text-xs text-yellow-600 mb-1">💭 Thinking</div>
                             )}
-                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                            <p className="text-sm whitespace-pre-wrap whitespace-normal break-words">{msg.content}</p>
                           </div>
                         </div>
                       </div>
@@ -707,7 +759,25 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                     <span className="text-sm">{member.name.charAt(0)}</span>
                   )}
                 </div>
-                <span className="text-sm">{member.name}</span>
+                <span className="text-sm flex-1">{member.name}</span>
+                {/* 状态指示点 */}
+                <div
+                  className={cn(
+                    "w-2 h-2 rounded-full flex-shrink-0",
+                    member.status === 'running' ? "bg-green-500" :
+                    member.status === 'pending' ? "bg-yellow-500" :
+                    member.status === 'completed' ? "bg-blue-500" :
+                    member.status === 'error' ? "bg-red-500" :
+                    "bg-gray-400"
+                  )}
+                  title={
+                    member.status === 'running' ? "运行中" :
+                    member.status === 'pending' ? "等待中" :
+                    member.status === 'completed' ? "已完成" :
+                    member.status === 'error' ? "错误" :
+                    "未启动"
+                  }
+                />
                 {member.role_type === 'teamlead' && (
                   <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Lead</span>
                 )}

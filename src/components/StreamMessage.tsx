@@ -113,10 +113,10 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       let renderedSomething = false;
       
       const renderedCard = (
-        <Card className={cn("border-primary/20 bg-primary/5", className)}>
-          <CardContent className="p-4">
+        <Card className={cn("border-primary/20 bg-primary/5 overflow-hidden", className)}>
+          <CardContent className="p-4 overflow-x-auto">
             <div className="flex items-start gap-3">
-              <Bot className="h-5 w-5 text-primary mt-0.5" />
+              <Bot className="h-5 w-5 text-primary mt-0.5 shrink-0" />
               <div className="flex-1 space-y-2 min-w-0">
                 {msg.content && Array.isArray(msg.content) && msg.content.map((content: any, idx: number) => {
                   // Text content - render as markdown
@@ -326,15 +326,26 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       let renderedSomething = false;
       
       const renderedCard = (
-        <Card className={cn("border-muted-foreground/20 bg-muted/20", className)}>
-          <CardContent className="p-4">
+        <Card className={cn("border-muted-foreground/20 bg-muted/20 overflow-hidden", className)}>
+          <CardContent className="p-4 overflow-x-auto">
             <div className="flex items-start gap-3">
-              <User className="h-5 w-5 text-muted-foreground mt-0.5" />
+              <User className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
               <div className="flex-1 space-y-2 min-w-0">
                 {/* Handle content that is a simple string (e.g. from user commands) */}
                 {(typeof msg.content === 'string' || (msg.content && !Array.isArray(msg.content))) && (
                   (() => {
-                    const contentStr = typeof msg.content === 'string' ? msg.content : String(msg.content);
+                    let contentStr = typeof msg.content === 'string' ? msg.content : String(msg.content);
+
+                    // Try to parse JSON string - if it's a JSON object with type "text", extract the text
+                    try {
+                      const parsed = JSON.parse(contentStr);
+                      if (parsed && typeof parsed === 'object' && parsed.type === 'text') {
+                        contentStr = parsed.text || contentStr;
+                      }
+                    } catch {
+                      // Not JSON, use as-is
+                    }
+
                     if (contentStr.trim() === '') return null;
                     renderedSomething = true;
                     
@@ -642,7 +653,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       return (
         <Card className={cn(
           isError ? "border-destructive/20 bg-destructive/5" : "border-green-500/20 bg-green-500/5",
-          className
+          "overflow-hidden", className
         )}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
@@ -719,8 +730,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     // If any error occurs during rendering, show a safe error message
     console.error("Error rendering stream message:", error, message);
     return (
-      <Card className={cn("border-destructive/20 bg-destructive/5", className)}>
-        <CardContent className="p-4">
+      <Card className={cn("border-destructive/20 bg-destructive/5 overflow-hidden", className)}>
+        <CardContent className="p-4 overflow-x-auto">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
             <div className="flex-1">

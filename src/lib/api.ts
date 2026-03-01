@@ -482,6 +482,15 @@ export interface EnglishName {
 }
 
 /**
+ * Member process status
+ */
+export interface MemberProcessStatus {
+  agent_id: string;
+  run_id: string | null;
+  status: "pending" | "running" | "completed" | "stopped" | "error";
+}
+
+/**
  * API client for interacting with the Rust backend
  */
 export const api = {
@@ -2169,6 +2178,20 @@ export const api = {
     } catch (error) {
       console.error("Failed to get random color:", error);
       return "#4ECDC4"; // Default fallback
+    }
+  },
+
+  /**
+   * Get the status of all project members' processes
+   * @param projectId - The project ID
+   * @returns Promise resolving to list of member process statuses
+   */
+  async getProjectMemberStatuses(projectId: string): Promise<MemberProcessStatus[]> {
+    try {
+      return await apiCall<MemberProcessStatus[]>("get_project_member_statuses", { projectId });
+    } catch (error) {
+      console.error("Failed to get project member statuses:", error);
+      return [];
     }
   },
 
