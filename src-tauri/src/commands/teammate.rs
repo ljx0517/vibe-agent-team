@@ -46,6 +46,56 @@ fn extract_result_from_output(output: &str) -> Option<String> {
     output.lines().rev().find(|l| !l.trim().is_empty()).map(|s| s.to_string())
 }
 
+/// Extract all messages from output (thinking and response)
+fn extract_all_messages(output: &str) -> Vec<(String, String)> {
+    // message_type can be: "thinking", "result", "response"
+    let mut messages = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            // Check for "type" field to determine message type
+            let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("response");
+
+            // Extract content based on message type
+            let content = if msg_type == "thinking" {
+                // For thinking, get the thinking content
+                json.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string())
+            } else {
+                // For result/response, get the result or message text
+                json.get("result").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    .or_else(|| {
+                        if let Some(msg) = json.get("message") {
+                            if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                                for item in content {
+                                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                        if !text.is_empty() {
+                                            return Some(text.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    })
+            };
+
+            if let Some(text) = content {
+                if !text.trim().is_empty() {
+                    let message_type = if msg_type == "thinking" { "thinking" } else { "response" };
+                    messages.push((message_type.to_string(), text));
+                }
+            }
+        }
+    }
+
+    messages
+}
+
 /// Get agent info by run_id (project_agent id)
 fn get_agent_info_by_run_id(
     conn: &rusqlite::Connection,
@@ -553,46 +603,57 @@ pub async fn start_teammate_agent(
 
         info!("Teammate agent {} finished", run_id_monitor);
 
-        // Get live output and save response to database
+        // Get live output and save all messages (thinking and response) to database
         if let Ok(live_output) = registry_monitor.get_live_output(run_id_monitor.clone()) {
             info!("Agent output length: {} chars", live_output.len());
 
-            // Extract response content
-            if let Some(response_content) = extract_result_from_output(&live_output) {
-                if !response_content.trim().is_empty() {
-                    info!("Saving agent response to database: {} chars", response_content.len());
+            // Extract all messages (thinking and response)
+            let all_messages = extract_all_messages(&live_output);
+            if !all_messages.is_empty() {
+                info!("Found {} messages to save", all_messages.len());
 
-                    // Clone values needed for spawn_blocking
-                    let db_clone = db_arc.clone();
-                    let project_id_for_db = project_id_for_event.clone();
-                    let run_id_for_db = run_id_monitor.clone();
-                    let app_clone = app_handle_monitor.clone();
-                    let project_id_for_emit = project_id_for_event.clone();
-                    let json_content = live_output.clone(); // Save raw json output
+                // Clone values needed for spawn_blocking
+                let db_clone = db_arc.clone();
+                let project_id_for_db = project_id_for_event.clone();
+                let run_id_for_db = run_id_monitor.clone();
+                let app_clone = app_handle_monitor.clone();
+                let project_id_for_emit = project_id_for_event.clone();
+                let json_content = live_output.clone(); // Save raw json output
 
-                    let result = tokio::task::spawn_blocking(move || {
-                        save_message_response_internal(
+                let result: Result<Result<usize, String>, tokio::task::JoinError> = tokio::task::spawn_blocking(move || {
+                    let mut saved_count = 0;
+                    for (msg_type, content) in all_messages {
+                        match save_message_response_internal(
                             &db_clone,
                             &project_id_for_db,
                             &run_id_for_db,
-                            &response_content,
+                            &content,
                             &json_content,
-                            "response",
-                        )
-                    }).await;
+                            &msg_type,
+                        ) {
+                            Ok(msg) => {
+                                info!("Saved {} message: {}", msg_type, msg.id);
+                                saved_count += 1;
+                            }
+                            Err(e) => {
+                                error!("Failed to save {} message: {}", msg_type, e);
+                            }
+                        }
+                    }
+                    Ok(saved_count)
+                }).await;
 
-                    match result {
-                        Ok(Ok(msg)) => {
-                            info!("Agent response saved: {}", msg.id);
-                            // Emit message update event
-                            let _ = app_clone.emit("project-message-update", &project_id_for_emit);
-                        }
-                        Ok(Err(e)) => {
-                            error!("Failed to save agent response: {}", e);
-                        }
-                        Err(e) => {
-                            error!("Failed to spawn blocking task: {}", e);
-                        }
+                match result {
+                    Ok(Ok(count)) => {
+                        info!("Saved {} messages to database", count);
+                        // Emit message update event
+                        let _ = app_clone.emit("project-message-update", &project_id_for_emit);
+                    }
+                    Ok(Err(e)) => {
+                        error!("Failed to save messages: {}", e);
+                    }
+                    Err(e) => {
+                        error!("Failed to spawn blocking task: {}", e);
                     }
                 }
             }
