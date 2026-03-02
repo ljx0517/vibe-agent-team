@@ -39,7 +39,7 @@ use commands::mcp::{
 use commands::proxy::{apply_proxy_settings, get_proxy_settings, save_proxy_settings};
 use commands::storage::{
     check_directory_status, storage_create_project, storage_list_projects,
-    create_workspace_marker, storage_delete_row, storage_execute_sql, storage_insert_row,
+    create_workspace_marker, storage_delete_row, storage_delete_rows, storage_execute_sql, storage_insert_row,
     storage_list_tables, storage_read_table, storage_reset_database, storage_update_row,
     create_project_team_skill, complete_project_initialization,
 };
@@ -291,6 +291,7 @@ fn main() {
             storage_read_table,
             storage_update_row,
             storage_delete_row,
+            storage_delete_rows,
             storage_insert_row,
             storage_execute_sql,
             storage_reset_database,

@@ -1827,6 +1827,27 @@ export const api = {
   },
 
   /**
+   * Deletes multiple rows from a table (batch operation)
+   * @param tableName - Name of the table
+   * @param primaryKeyValuesArray - Array of primary key value maps
+   * @returns Promise resolving to the number of deleted rows
+   */
+  async storageDeleteRows(
+    tableName: string,
+    primaryKeyValuesArray: Record<string, any>[]
+  ): Promise<number> {
+    try {
+      return await apiCall<number>("storage_delete_rows", {
+        tableName,
+        primaryKeyValuesArray,
+      });
+    } catch (error) {
+      console.error("Failed to delete rows:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Inserts a new row into a table
    * @param tableName - Name of the table
    * @param values - Map of column names to values

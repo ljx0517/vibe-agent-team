@@ -331,6 +331,90 @@ pub async fn storage_delete_row(
     Ok(())
 }
 
+/// Delete multiple rows from a table (batch operation)
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn storage_delete_rows(
+    db: State<'_, AgentDb>,
+    tableName: String,
+    primaryKeyValuesArray: Vec<HashMap<String, JsonValue>>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    // Validate table name
+    if !is_valid_table_name(&conn, &tableName)? {
+        return Err("Invalid table name".to_string());
+    }
+
+    // Get primary key columns for the table
+    let mut pragma_stmt = conn
+        .prepare(&format!("PRAGMA table_info({})", tableName))
+        .map_err(|e| e.to_string())?;
+
+    let pk_columns: Vec<String> = pragma_stmt
+        .query_map([], |row| {
+            let pk: i32 = row.get::<_, i32>(5)?;
+            let name: String = row.get(1)?;
+            Ok((pk != 0, name))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .filter(|(pk, _)| *pk)
+        .map(|(_, name)| name)
+        .collect();
+
+    drop(pragma_stmt);
+
+    if pk_columns.is_empty() {
+        return Err("Table has no primary key".to_string());
+    }
+
+    // Use transaction for batch delete
+    let mut total_deleted = 0;
+
+    conn.execute("BEGIN TRANSACTION", [])
+        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+
+    for primaryKeyValues in primaryKeyValuesArray {
+        // Build DELETE query
+        let where_clauses: Vec<String> = pk_columns
+            .iter()
+            .enumerate()
+            .map(|(idx, key)| format!("{} = ?{}", key, idx + 1))
+            .collect();
+
+        let query = format!(
+            "DELETE FROM {} WHERE {}",
+            tableName,
+            where_clauses.join(" AND ")
+        );
+
+        // Prepare parameters
+        let params: Vec<Box<dyn rusqlite::ToSql>> = pk_columns
+            .iter()
+            .filter_map(|col| primaryKeyValues.get(col))
+            .map(json_to_sql_value)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Execute delete
+        let deleted = conn.execute(
+            &query,
+            rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+        )
+        .map_err(|e| {
+            let _ = conn.execute("ROLLBACK", []);
+            format!("Failed to delete row: {}", e)
+        })?;
+
+        total_deleted += deleted;
+    }
+
+    conn.execute("COMMIT", [])
+        .map_err(|e| format!("Failed to commit transaction: {}", e))?;
+
+    Ok(total_deleted)
+}
+
 /// Insert a new row into a table
 #[tauri::command]
 #[allow(non_snake_case)]

@@ -15,6 +15,8 @@ import {
   X,
   Table,
   Loader2,
+  Square,
+  CheckSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,10 +92,14 @@ export const StorageTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Selection state for multi-select
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+
   // Dialog states
   const [editingRow, setEditingRow] = useState<Record<string, any> | null>(null);
   const [newRow, setNewRow] = useState<Record<string, any> | null>(null);
   const [deletingRow, setDeletingRow] = useState<Record<string, any> | null>(null);
+  const [deletingRows, setDeletingRows] = useState<boolean>(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showSqlEditor, setShowSqlEditor] = useState(false);
   const [sqlQuery, setSqlQuery] = useState("");
@@ -116,6 +122,8 @@ export const StorageTab: React.FC = () => {
       loadTableData(1);
       // Save selected table to settings
       api.saveSetting('storage_selected_table', selectedTable);
+      // Clear selection when table changes
+      setSelectedRows(new Set());
     }
   }, [selectedTable]);
 
@@ -231,6 +239,68 @@ export const StorageTab: React.FC = () => {
     } catch (err) {
       console.error("Failed to delete row:", err);
       setError("Failed to delete row");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Handle toggle single row selection
+   */
+  const handleToggleRow = (index: number) => {
+    setSelectedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
+  /**
+   * Handle toggle all rows selection
+   */
+  const handleToggleAllRows = () => {
+    if (!tableData) return;
+
+    if (selectedRows.size === tableData.rows.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(tableData.rows.map((_, i) => i)));
+    }
+  };
+
+  /**
+   * Handle batch delete
+   */
+  const handleBatchDelete = async () => {
+    if (!selectedTable || selectedRows.size === 0 || !tableData) return;
+
+    try {
+      setLoading(true);
+      const pkValuesArray: Record<string, any>[] = [];
+
+      selectedRows.forEach(index => {
+        const row = tableData.rows[index];
+        if (row) {
+          pkValuesArray.push(getPrimaryKeyValues(row));
+        }
+      });
+
+      const deletedCount = await api.storageDeleteRows(selectedTable, pkValuesArray);
+      await loadTableData(currentPage);
+      setSelectedRows(new Set());
+      setDeletingRows(false);
+
+      setToast({
+        message: `Successfully deleted ${deletedCount} row(s)`,
+        type: "success",
+      });
+    } catch (err) {
+      console.error("Failed to delete rows:", err);
+      setError("Failed to delete rows");
     } finally {
       setLoading(false);
     }
@@ -404,15 +474,28 @@ export const StorageTab: React.FC = () => {
             </div>
 
             {tableData && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setNewRow({})}
-                className="gap-2 h-8 text-xs"
-              >
-                <Plus className="h-3 w-3" />
-                New Row
-              </Button>
+              <>
+                {selectedRows.size > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeletingRows(true)}
+                    className="gap-2 h-8 text-xs"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete ({selectedRows.size})
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNewRow({})}
+                  className="gap-2 h-8 text-xs"
+                >
+                  <Plus className="h-3 w-3" />
+                  New Row
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -425,6 +508,19 @@ export const StorageTab: React.FC = () => {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
+                  <th className="px-3 py-2 text-center text-xs font-medium text-muted-foreground w-10">
+                    <button
+                      onClick={handleToggleAllRows}
+                      className="p-1 hover:bg-muted rounded"
+                      title={selectedRows.size === tableData.rows.length ? "Deselect all" : "Select all"}
+                    >
+                      {tableData.rows.length > 0 && selectedRows.size === tableData.rows.length ? (
+                        <CheckSquare className="h-4 w-4" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </button>
+                  </th>
                   {tableData.columns.map((column) => (
                     <th
                       key={column.name}
@@ -454,8 +550,22 @@ export const StorageTab: React.FC = () => {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="border-b hover:bg-muted/25 transition-colors"
+                      className={`border-b hover:bg-muted/25 transition-colors ${
+                        selectedRows.has(index) ? "bg-destructive/10" : ""
+                      }`}
                     >
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => handleToggleRow(index)}
+                          className="p-1 hover:bg-muted rounded"
+                        >
+                          {selectedRows.has(index) ? (
+                            <CheckSquare className="h-4 w-4 text-destructive" />
+                          ) : (
+                            <Square className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </button>
+                      </td>
                       {tableData.columns.map((column) => {
                         const value = row[column.name];
                         const formattedValue = formatCellValue(value, 50);
@@ -768,6 +878,40 @@ export const StorageTab: React.FC = () => {
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <Dialog open={deletingRows} onOpenChange={() => setDeletingRows(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Multiple Rows</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedRows.size} row(s)? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-3 p-4 rounded-md bg-destructive/10 text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+            <span className="text-sm font-medium">
+              You are about to permanently delete {selectedRows.size} row(s)!
+            </span>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingRows(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBatchDelete}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                `Delete ${selectedRows.size} Row(s)`
               )}
             </Button>
           </DialogFooter>
