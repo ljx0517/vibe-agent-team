@@ -243,6 +243,7 @@ pub async fn get_messages(
              FROM messages m
              LEFT JOIN agents a ON m.sender_id = a.id
              WHERE m.project_id = ?1
+               AND m.message_type NOT IN ('init', 'result')
              ORDER BY m.created_at ASC",
         )
         .map_err(|e| e.to_string())?;

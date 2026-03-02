@@ -114,6 +114,8 @@ export const StorageTab: React.FC = () => {
   useEffect(() => {
     if (selectedTable) {
       loadTableData(1);
+      // Save selected table to settings
+      api.saveSetting('storage_selected_table', selectedTable);
     }
   }, [selectedTable]);
 
@@ -126,7 +128,12 @@ export const StorageTab: React.FC = () => {
       setError(null);
       const result = await api.storageListTables();
       setTables(result);
-      if (result.length > 0 && !selectedTable) {
+
+      // Try to restore last selected table from settings
+      const lastTable = await api.getSetting('storage_selected_table');
+      if (lastTable && result.some(t => t.name === lastTable)) {
+        setSelectedTable(lastTable);
+      } else if (result.length > 0 && !selectedTable) {
         setSelectedTable(result[0].name);
       }
     } catch (err) {

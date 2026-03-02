@@ -489,9 +489,33 @@ pub async fn start_teammate_agent(
         }
     }
 
-    let agents_json = serde_json::json!({
-        &agent_id: agent_config
-    });
+    // Build command arguments for main session mode (not sub-agent)
+    // This keeps the process running and maintains conversation context
+    let mut args = vec![
+        "--print".to_string(),
+        "--session-id".to_string(),
+        run_id.clone(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--verbose".to_string(),
+    ];
+
+    // Add system prompt with agent role
+    if !agent.system_prompt.is_empty() {
+        args.push("--system-prompt".to_string());
+        args.push(agent.system_prompt.clone());
+    }
+
+    // Add model if specified
+    if !execution_model.is_empty() {
+        args.push("--model".to_string());
+        args.push(execution_model.clone());
+    }
+
+    // Add permission mode
+    if permission_mode == "bypassPermissions" {
+        args.push("--dangerously-skip-permissions".to_string());
+    }
 
     // Find Claude binary
     let claude_path = match find_claude_bin(&app) {
@@ -501,21 +525,6 @@ pub async fn start_teammate_agent(
             return Err(e);
         }
     };
-
-    // Build command arguments
-    // Note: We don't use -p (task) because we want to wait for stdin input
-    let mut args = vec![
-        "--agents".to_string(),
-        agents_json.to_string(),
-        "--output-format".to_string(),
-        "stream-json".to_string(),
-        "--verbose".to_string(),
-    ];
-
-    // Only add skip-permissions flag if permissionMode is bypassPermissions
-    if permission_mode == "bypassPermissions" {
-        args.push("--dangerously-skip-permissions".to_string());
-    }
 
     info!("Claude args: {:?}", args);
 

@@ -26,6 +26,7 @@ import { CreateProjectDialog } from '@/components/CreateProjectDialog';
 import { Settings as SettingsComponent } from '@/components/Settings';
 import { FloatingPromptInput } from './FloatingPromptInput';
 import { Teammates } from './Teammates';
+import { ThinkingWidget } from './ToolWidgets';
 import { api, type Agent, type Message } from '@/lib/api';
 // 项目进度类型
 interface ProjectProgress {
@@ -309,7 +310,13 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
       if (selectedProject) {
         try {
           setLoadingMessages(true);
-          const msgs = await api.getMessages(selectedProject.project_id);
+          const allMsgs = await api.getMessages(selectedProject.project_id);
+          // 只显示 user, thinking, response 类型的消息
+          const msgs = allMsgs.filter(m =>
+            m.message_type === 'user' ||
+            m.message_type === 'thinking' ||
+            m.message_type === 'response'
+          );
           setMessages(msgs);
         } catch (error) {
           console.error('Failed to fetch messages:', error);
@@ -630,10 +637,11 @@ export const ThreeLevelLayout: React.FC<ThreeLevelLayoutProps> = ({
                                   : "bg-gray-100 text-gray-800"
                             )}
                           >
-                            {msg.message_type === 'thinking' && (
-                              <div className="text-xs text-yellow-600 mb-1">💭 Thinking</div>
+                            {msg.message_type === 'thinking' ? (
+                              <ThinkingWidget thinking={msg.content} />
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap whitespace-normal break-words">{msg.content}</p>
                             )}
-                            <p className="text-sm whitespace-pre-wrap whitespace-normal break-words">{msg.content}</p>
                           </div>
                         </div>
                       </div>

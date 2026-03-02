@@ -2281,10 +2281,10 @@ export const ThinkingWidget: React.FC<{
   const trimmedThinking = thinking.trim();
   
   return (
-    <div className="rounded-lg border border-gray-500/20 bg-gray-500/5 overflow-hidden">
+    <div className="rounded-lg border overflow-hidden border-none">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-500/10 transition-colors"
+        className="w-full px-2 py-0 flex items-center justify-between transition-colors"
       >
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -2302,8 +2302,8 @@ export const ThinkingWidget: React.FC<{
       </button>
       
       {isExpanded && (
-        <div className="px-4 pb-4 pt-2 border-t border-gray-500/20">
-          <pre className="text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-pre-wrap bg-gray-500/5 p-3 rounded-lg italic">
+        <div className="px-2 pb-2 pt-2">
+          <pre className="text-xs font-mono text-gray-600 dark:text-gray-400 whitespace-pre-wrap rounded-lg italic">
             {trimmedThinking}
           </pre>
         </div>

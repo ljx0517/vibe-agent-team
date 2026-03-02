@@ -20,6 +20,10 @@ pub enum MessageType {
     Thinking,
     /// Claude final response
     Response,
+    /// Result summary after completion
+    Result,
+    /// Agent init message
+    Init,
     /// Error output
     Error,
 }
@@ -30,6 +34,8 @@ impl MessageType {
             MessageType::User => "user",
             MessageType::Thinking => "thinking",
             MessageType::Response => "response",
+            MessageType::Result => "result",
+            MessageType::Init => "init",
             MessageType::Error => "error",
         }
     }
@@ -380,6 +386,20 @@ impl MessageMiddleware {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(output) {
             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("response");
 
+            // Handle result type separately - it's a summary after completion
+            if msg_type == "result" {
+                let result_content = json.get("result").and_then(|v| v.as_str()).map(|s| s.to_string());
+                return Ok((
+                    MessageType::Result,
+                    result_content.unwrap_or_else(|| output.to_string()),
+                ));
+            }
+
+            // Handle system-init type - agent initialization info
+            if msg_type == "system" && json.get("subtype").and_then(|v| v.as_str()) == Some("init") {
+                return Ok((MessageType::Init, output.to_string()));
+            }
+
             // Check for thinking content in two formats:
             // 1. {"type":"thinking", "thinking":"..."}
             // 2. {"type":"assistant", "message":{"content":[{"type":"thinking", "thinking":"..."}]}}
@@ -404,25 +424,32 @@ impl MessageMiddleware {
                 None
             };
 
-            // Get response text content
-            let response_content = json.get("result").and_then(|v| v.as_str()).map(|s| s.to_string())
-                .or_else(|| {
-                    if let Some(msg) = json.get("message") {
-                        if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
-                            for item in content {
-                                // Skip thinking blocks, get text blocks
-                                if item.get("type").and_then(|v| v.as_str()) != Some("thinking") {
-                                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                                        if !text.is_empty() {
-                                            return Some(text.to_string());
-                                        }
+            // Get response text content (only for assistant type)
+            let response_content: Option<String> = if msg_type == "assistant" {
+                if let Some(msg) = json.get("message") {
+                    if let Some(content) = msg.get("content").and_then(|c| c.as_array()) {
+                        let mut result = None;
+                        for item in content {
+                            // Skip thinking blocks, get text blocks
+                            if item.get("type").and_then(|v| v.as_str()) != Some("thinking") {
+                                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                    if !text.is_empty() {
+                                        result = Some(text.to_string());
+                                        break;
                                     }
                                 }
                             }
                         }
+                        result
+                    } else {
+                        None
                     }
+                } else {
                     None
-                });
+                }
+            } else {
+                None
+            };
 
             // Return thinking if available, otherwise response
             if let Some(text) = thinking_content {
