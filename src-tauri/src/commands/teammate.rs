@@ -492,7 +492,7 @@ pub async fn start_teammate_agent(
     // Build command arguments for main session mode (not sub-agent)
     // This keeps the process running and maintains conversation context
     let mut args = vec![
-        "--print".to_string(),
+        // "--print".to_string(),
         "--session-id".to_string(),
         run_id.clone(),
         "--output-format".to_string(),
