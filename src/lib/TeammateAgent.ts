@@ -40,7 +40,9 @@ export type CompleteCallback = (success: boolean) => void;
 export class TeammateAgent {
   private agentId: string;
   private projectPath: string;
-  private runId: string | null = null;
+  private projectAgentId: string;  // session_id for the teammate agent
+  private projectId: string;
+  private sessionId: string | null = null;  // same as projectAgentId
   private model?: string;
 
   // Event callbacks
@@ -58,11 +60,15 @@ export class TeammateAgent {
    *
    * @param agentId - The ID of the agent from the database
    * @param projectPath - Path to the project directory
+   * @param projectAgentId - The project_agent_id (used as session_id)
+   * @param projectId - The project ID
    * @param model - Optional model override (e.g., 'sonnet', 'haiku')
    */
-  constructor(agentId: string, projectPath: string, model?: string) {
+  constructor(agentId: string, projectPath: string, projectAgentId: string, projectId: string, model?: string) {
     this.agentId = agentId;
     this.projectPath = projectPath;
+    this.projectAgentId = projectAgentId;
+    this.projectId = projectId;
     this.model = model;
   }
 
@@ -77,13 +83,15 @@ export class TeammateAgent {
 
     try {
       // Call the Tauri command to start the agent
-      this.runId = await invoke<string>("start_teammate_agent", {
+      this.sessionId = await invoke<string>("start_teammate_agent", {
+        projectAgentId: this.projectAgentId,
         agentId: this.agentId,
         projectPath: this.projectPath,
+        projectId: this.projectId,
         model: this.model,
       });
 
-      console.log(`[TeammateAgent] Started with runId: ${this.runId}`);
+      console.log(`[TeammateAgent] Started with sessionId: ${this.sessionId}`);
 
       // Set up event listeners
       await this.setupEventListeners();
@@ -94,16 +102,28 @@ export class TeammateAgent {
   }
 
   /**
+   * Get the session ID (same as projectAgentId)
+   */
+  getSessionId(): string | null {
+    return this.sessionId;
+  }
+
+  // Keep runId as alias for backward compatibility
+  get runId(): string | null {
+    return this.sessionId;
+  }
+
+  /**
    * Set up event listeners for agent output
    */
   private async setupEventListeners(): Promise<void> {
-    if (!this.runId) {
-      throw new Error("Agent not started - no runId");
+    if (!this.sessionId) {
+      throw new Error("Agent not started - no sessionId");
     }
 
     // Listen for output events
     this.unlistenOutput = await listen<string>(
-      `teammate-output:${this.runId}`,
+      `teammate-output:${this.sessionId}`,
       (event) => {
         console.log(`[TeammateAgent] Output:`, event.payload);
         this.outputCallbacks.forEach((cb) => cb(event.payload));
@@ -112,7 +132,7 @@ export class TeammateAgent {
 
     // Listen for error events
     this.unlistenError = await listen<string>(
-      `teammate-error:${this.runId}`,
+      `teammate-error:${this.sessionId}`,
       (event) => {
         console.error(`[TeammateAgent] Error:`, event.payload);
         this.errorCallbacks.forEach((cb) => cb(event.payload));
@@ -146,7 +166,7 @@ export class TeammateAgent {
     console.log(`[TeammateAgent] Sending message:`, content);
 
     await invoke("send_to_teammate", {
-      runId: this.runId,
+      sessionId: this.sessionId,
       message: content,
     });
   }
@@ -221,15 +241,16 @@ export class TeammateAgent {
    * @throws Error if agent is not running
    */
   async kill(): Promise<boolean> {
-    if (!this.runId) {
+    if (!this.sessionId) {
       throw new Error("Agent not started - call start() first");
     }
 
-    console.log(`[TeammateAgent] Killing agent: ${this.runId}`);
+    console.log(`[TeammateAgent] Killing agent: ${this.sessionId}`);
 
     try {
       const result = await invoke<boolean>("stop_teammate_agent", {
-        runId: this.runId,
+        sessionId: this.sessionId,
+        projectId: this.projectId,
       });
 
       this.cleanup();
@@ -246,13 +267,13 @@ export class TeammateAgent {
    * @returns Promise<string | null> - 'running' or null if not running
    */
   async getStatus(): Promise<string | null> {
-    if (!this.runId) {
+    if (!this.sessionId) {
       return null;
     }
 
     try {
       const status = await invoke<string | null>("get_teammate_status", {
-        runId: this.runId,
+        sessionId: this.sessionId,
       });
       return status;
     } catch (error) {
@@ -296,7 +317,7 @@ export class TeammateAgent {
       this.unlistenComplete = null;
     }
 
-    this.runId = null;
+    this.sessionId = null;
   }
 
   /**
@@ -304,7 +325,7 @@ export class TeammateAgent {
    * Should be called when done using the agent
    */
   destroy(): void {
-    if (this.runId) {
+    if (this.sessionId) {
       this.kill().catch(console.error);
     }
     this.cleanup();

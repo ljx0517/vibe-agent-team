@@ -410,6 +410,7 @@ pub fn init_database_with_path(db_path: &std::path::Path) -> SqliteResult<Connec
             agent_id TEXT NOT NULL,
             target_branch TEXT NOT NULL DEFAULT 'main',
             project_prompt TEXT,
+            session_id TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -548,6 +549,55 @@ pub async fn add_agent_to_project(
     }
 
     Ok(())
+}
+
+/// Update session_id for a project-agent relationship
+#[tauri::command]
+pub async fn update_project_agent_session(
+    db: State<'_, AgentDb>,
+    project_agent_id: String,
+    session_id: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let result = conn.execute(
+        "UPDATE project_agents SET session_id = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![session_id, project_agent_id],
+    );
+
+    match result {
+        Ok(rows) => {
+            if rows == 0 {
+                return Err(format!("Project agent not found: {}", project_agent_id));
+            }
+            log::info!("Updated session_id for project_agent_id={}", project_agent_id);
+        }
+        Err(e) => {
+            log::error!("Failed to update session_id: {}", e);
+            return Err(e.to_string());
+        }
+    }
+
+    Ok(())
+}
+
+/// Get session_id for a project-agent relationship
+#[tauri::command]
+pub async fn get_project_agent_session(
+    db: State<'_, AgentDb>,
+    project_agent_id: String,
+) -> Result<Option<String>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    let session_id: Option<String> = conn
+        .query_row(
+            "SELECT session_id FROM project_agents WHERE id = ?1",
+            params![project_agent_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(session_id)
 }
 
 /// Check if an agent belongs to any project

@@ -15,7 +15,8 @@ use commands::agents::{
     import_agent_from_file, import_agent_from_github, init_database, kill_agent_session,
     list_agent_runs, list_agent_runs_with_metrics, list_agents, list_claude_installations, list_teamleads,
     list_project_agents, list_running_sessions, load_agent_session_history, set_claude_binary_path,
-    stream_session_output, update_agent, add_agent_to_project, is_agent_in_project, AgentDb,
+    stream_session_output, update_agent, add_agent_to_project, is_agent_in_project,
+    update_project_agent_session, get_project_agent_session, AgentDb,
 };
 use commands::claude::{
     cancel_claude_execution, check_auto_checkpoint, check_claude_version, cleanup_old_checkpoints,
@@ -241,6 +242,8 @@ fn main() {
             list_project_agents,
             add_agent_to_project,
             is_agent_in_project,
+            update_project_agent_session,
+            get_project_agent_session,
             create_agent,
             update_agent,
             delete_agent,

@@ -7,7 +7,6 @@ use std::process::Stdio;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::process::Command;
-use uuid::Uuid;
 
 use crate::claude_binary::find_claude_binary;
 use crate::commands::agents::{get_agent, AgentDb};
@@ -17,8 +16,7 @@ use crate::process::ProcessRegistryState;
 /// Member status stored in memory
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemberStatus {
-    pub agent_id: String,
-    pub run_id: Option<String>,
+    pub project_agent_id: String,
     pub status: String, // "pending", "running", "completed", "stopped", "error"
 }
 
@@ -26,18 +24,16 @@ pub struct MemberStatus {
 fn update_member_status(
     app: &AppHandle,
     project_id: &str,
-    agent_id: &str,
-    run_id: Option<String>,
+    project_agent_id: &str,
     status: &str,
 ) {
     let mut statuses = MEMBER_STATUS.lock().unwrap();
     let project_statuses = statuses.entry(project_id.to_string()).or_insert_with(HashMap::new);
 
     project_statuses.insert(
-        agent_id.to_string(),
+        project_agent_id.to_string(),
         MemberStatus {
-            agent_id: agent_id.to_string(),
-            run_id,
+            project_agent_id: project_agent_id.to_string(),
             status: status.to_string(),
         },
     );
@@ -51,27 +47,6 @@ fn update_member_status(
 lazy_static::lazy_static! {
     static ref MEMBER_STATUS: Arc<Mutex<HashMap<String, HashMap<String, MemberStatus>>>> =
         Arc::new(Mutex::new(HashMap::new()));
-    // Map run_id to (project_id, agent_id)
-    static ref RUN_ID_MAPPING: Arc<Mutex<HashMap<String, (String, String)>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-}
-
-/// Save run_id mapping for later lookup
-fn save_run_id_mapping(run_id: &str, project_id: &str, agent_id: &str) {
-    let mut mapping = RUN_ID_MAPPING.lock().unwrap();
-    mapping.insert(run_id.to_string(), (project_id.to_string(), agent_id.to_string()));
-}
-
-/// Get project_id and agent_id from run_id
-fn get_run_id_mapping(run_id: &str) -> Option<(String, String)> {
-    let mapping = RUN_ID_MAPPING.lock().unwrap();
-    mapping.get(run_id).cloned()
-}
-
-/// Remove run_id mapping
-fn remove_run_id_mapping(run_id: &str) {
-    let mut mapping = RUN_ID_MAPPING.lock().unwrap();
-    mapping.remove(run_id);
 }
 
 /// Extract the final result from Claude's JSON output
@@ -157,11 +132,11 @@ fn extract_all_messages(output: &str) -> Vec<(String, String)> {
     messages
 }
 
-/// Get agent info by run_id (project_agent id)
-fn get_agent_info_by_run_id(
+/// Get agent info by project_agent_id
+fn get_agent_info_by_project_agent_id(
     conn: &rusqlite::Connection,
     project_id: &str,
-    run_id: &str,
+    project_agent_id: &str,
 ) -> Result<(String, String), String> {
     let mut stmt = conn
         .prepare(
@@ -172,10 +147,10 @@ fn get_agent_info_by_run_id(
         )
         .map_err(|e| e.to_string())?;
 
-    stmt.query_row(params![project_id, run_id], |row| {
+    stmt.query_row(params![project_id, project_agent_id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })
-    .map_err(|e| format!("Agent not found for run_id: {}", e))
+    .map_err(|e| format!("Agent not found for project_agent_id: {}", e))
 }
 
 /// Agent settings parsed from JSON
@@ -237,7 +212,7 @@ pub struct HookDefinition {
 /// Represents a running teammate agent session
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TeammateSession {
-    pub run_id: String,
+    pub session_id: String,  // same as project_agent_id
     pub agent_id: String,
     pub agent_name: String,
     pub project_path: String,
@@ -366,17 +341,17 @@ fn create_command_with_env(program: &str) -> Command {
 #[tauri::command]
 pub async fn start_teammate_agent(
     app: AppHandle,
+    project_agent_id: String,
     agent_id: String,
     project_path: String,
     project_id: String,
     model: Option<String>,
-    run_id: Option<String>,
     db: State<'_, AgentDb>,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<String, String> {
     info!(
-        "Starting teammate agent: {} in project: {}",
-        agent_id, project_path
+        "Starting teammate agent: {} (project_agent_id: {}) in project: {}",
+        agent_id, project_agent_id, project_path
     );
 
     // Get agent from database
@@ -389,8 +364,16 @@ pub async fn start_teammate_agent(
     let settings = parse_agent_settings(&agent.settings);
     let hooks = parse_agent_hooks(&agent.hooks);
 
-    // Use provided run_id or generate new one
-    let run_id = run_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    // Use project_agent_id as session_id (no need for separate run_id)
+    let session_id = project_agent_id.clone();
+
+    // Check if this session is already registered and running
+    if registry.0.exists(&session_id)? {
+        return Err(format!(
+            "Session ID {} is already in use by a running process. Please stop the existing agent first.",
+            session_id
+        ));
+    }
 
     // Determine if we should skip permissions (for backwards compatibility, default to true)
     let skip_permissions = true;
@@ -494,7 +477,7 @@ pub async fn start_teammate_agent(
     let mut args = vec![
         // "--print".to_string(),
         "--session-id".to_string(),
-        run_id.clone(),
+        session_id.clone(),
         "--output-format".to_string(),
         "stream-json".to_string(),
         "--verbose".to_string(),
@@ -568,7 +551,7 @@ pub async fn start_teammate_agent(
     // Clone variables for async tasks
     let app_handle = app.clone();
     let registry_clone = registry.0.clone();
-    let run_id_clone = run_id.clone();
+    let session_id_clone = session_id.clone();
     let project_path_clone = project_path.clone();
     let agent_id_clone = agent_id.clone();
     let agent_name_clone = agent.name.clone();
@@ -592,7 +575,7 @@ pub async fn start_teammate_agent(
             info!("Teammate stdout: {}", line);
 
             // Store live output
-            let _ = registry_clone.append_live_output(run_id_clone.clone(), &line);
+            let _ = registry_clone.append_live_output(session_id_clone.clone(), &line);
 
             // 只使用消息中间件传递消息，不直接emit， 也不需要过滤消息，是否过滤消息由消息中间件判断
             // Emit to frontend (skip init messages - they don't need to be displayed but are saved to DB)
@@ -612,7 +595,7 @@ pub async fn start_teammate_agent(
             let db_for_output_clone = db_for_output.clone();
             let registry_for_middleware = registry_arc.clone();
             let project_path_clone = project_path_for_middleware.clone();
-            let run_id_for_middleware = run_id_clone.clone();
+            let session_id_for_middleware = session_id_clone.clone();
             let project_id_for_mw = project_id_for_middleware.clone();
             let app_handle_clone = app_handle.clone();
 
@@ -626,7 +609,7 @@ pub async fn start_teammate_agent(
                 // Handle outgoing message
                 match middleware.handle_outgoing(
                     app_handle_clone,
-                    run_id_for_middleware.clone(),
+                    session_id_for_middleware.clone(),
                     project_id_for_mw.clone(),
                     line,
                 ).await {
@@ -643,7 +626,7 @@ pub async fn start_teammate_agent(
 
     // Spawn stderr reader
     let app_handle_stderr = app.clone();
-    let run_id_stderr = run_id.clone();
+    let session_id_stderr = session_id.clone();
     let stderr_task = tokio::spawn(async move {
         let stderr_reader = TokioBufReader::new(stderr);
         let mut lines = stderr_reader.lines();
@@ -652,7 +635,7 @@ pub async fn start_teammate_agent(
             error!("Teammate stderr: {}", line);
 
             // Emit error to frontend
-            let _ = app_handle_stderr.emit(&format!("teammate-error:{}", run_id_stderr), &line);
+            let _ = app_handle_stderr.emit(&format!("teammate-error:{}", session_id_stderr), &line);
             let _ = app_handle_stderr.emit("teammate-error", &line);
         }
 
@@ -663,7 +646,7 @@ pub async fn start_teammate_agent(
     registry
         .0
         .register_teammate_agent(
-            run_id.clone(),
+            session_id.clone(),
             agent_id_clone.clone(),
             agent_name_clone,
             pid,
@@ -675,13 +658,10 @@ pub async fn start_teammate_agent(
         )
         .map_err(|e| format!("Failed to register teammate agent: {}", e))?;
 
-    info!("Registered teammate agent with run_id: {}", run_id);
+    info!("Registered teammate agent with session_id: {}", session_id);
 
     // Update member status to running and emit event
-    update_member_status(&app, &project_id, &agent_id, Some(run_id.clone()), "running");
-
-    // Save run_id mapping for later lookup (when stopping/completing)
-    save_run_id_mapping(&run_id, &project_id, &agent_id);
+    update_member_status(&app, &project_id, &project_agent_id, "running");
 
     // Clone db for saving messages (Arc<Mutex<Connection>> can be cloned)
     let db_arc = db.0.clone();
@@ -689,14 +669,14 @@ pub async fn start_teammate_agent(
     // Spawn monitoring task
     let app_handle_monitor = app.clone();
     let registry_monitor = registry.0.clone();
-    let run_id_monitor = run_id.clone();
+    let session_id_monitor = session_id.clone();
     let project_id_for_event = project_id.clone();
     tokio::spawn(async move {
         // Wait for stdout/stderr tasks to complete
         let _ = stdout_task.await;
         let _ = stderr_task.await;
 
-        info!("Teammate agent {} finished", run_id_monitor);
+        info!("Teammate agent {} finished", session_id_monitor);
 
         // [已注释] 消息保存已由 MessageMiddleware.handle_outgoing() 实时处理，不再需要批量保存
         // // Get live output and save all messages (thinking and response) to database
@@ -756,58 +736,52 @@ pub async fn start_teammate_agent(
         // }
 
         // Emit completion event (新消息已通过 MessageMiddleware 实时 emit，不需要再刷新)
-        let _ = app_handle_monitor.emit(&format!("teammate-complete:{}", run_id_monitor), true);
+        let _ = app_handle_monitor.emit(&format!("teammate-complete:{}", session_id_monitor), true);
         let _ = app_handle_monitor.emit("teammate-complete", true);
 
         // Update member status to completed and emit event
-        if let Some((project_id, agent_id)) = get_run_id_mapping(&run_id_monitor) {
-            update_member_status(&app_handle_monitor, &project_id, &agent_id, Some(run_id_monitor.clone()), "completed");
-            // Remove mapping
-            remove_run_id_mapping(&run_id_monitor);
-        }
+        update_member_status(&app_handle_monitor, &project_id_for_event, &session_id_monitor, "completed");
 
         // Unregister from registry
-        let _ = registry_monitor.unregister_process(run_id_monitor);
+        let _ = registry_monitor.unregister_process(session_id_monitor);
     });
 
-    Ok(run_id)
+    Ok(session_id)
 }
 
 /// Send a message to a running teammate agent
 #[tauri::command]
 pub async fn send_to_teammate(
-    run_id: String,
+    session_id: String,
     message: String,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<(), String> {
-    info!("Sending message to teammate agent: {}", run_id);
+    info!("Sending message to teammate agent: {}", session_id);
 
     registry
         .0
-        .send_to_process_async(&run_id, &message)
+        .send_to_process_async(&session_id, &message)
         .await
 }
 
 /// Stop a running teammate agent
 #[tauri::command]
 pub async fn stop_teammate_agent(
-    run_id: String,
+    session_id: String,
+    project_id: String,
     app: AppHandle,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<bool, String> {
-    info!("Stopping teammate agent: {}", run_id);
+    info!("Stopping teammate agent: {}", session_id);
 
-    let result = registry.0.kill_process(run_id.clone()).await?;
+    let result = registry.0.kill_process(session_id.clone()).await?;
 
     if result {
-        info!("Successfully stopped teammate agent: {}", run_id);
+        info!("Successfully stopped teammate agent: {}", session_id);
         // Update member status to stopped and emit event
-        if let Some((project_id, agent_id)) = get_run_id_mapping(&run_id) {
-            update_member_status(&app, &project_id, &agent_id, Some(run_id.clone()), "stopped");
-            remove_run_id_mapping(&run_id);
-        }
+        update_member_status(&app, &project_id, &session_id, "stopped");
     } else {
-        warn!("Failed to stop teammate agent: {}", run_id);
+        warn!("Failed to stop teammate agent: {}", session_id);
     }
 
     Ok(result)
@@ -816,10 +790,10 @@ pub async fn stop_teammate_agent(
 /// Get the status of a teammate agent
 #[tauri::command]
 pub async fn get_teammate_status(
-    run_id: String,
+    session_id: String,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<Option<String>, String> {
-    if registry.0.exists(&run_id)? {
+    if registry.0.exists(&session_id)? {
         Ok(Some("running".to_string()))
     } else {
         Ok(None)
@@ -829,8 +803,7 @@ pub async fn get_teammate_status(
 /// Status of a project member's process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemberProcessStatus {
-    pub agent_id: String,
-    pub run_id: Option<String>,
+    pub project_agent_id: String,
     pub status: String, // "pending", "running", "completed", "stopped", "error"
 }
 
@@ -841,12 +814,12 @@ pub async fn get_project_member_statuses(
     db: State<'_, AgentDb>,
     registry: State<'_, ProcessRegistryState>,
 ) -> Result<Vec<MemberProcessStatus>, String> {
-    // Get all project members with their run_ids (now uses pa.id)
+    // Get all project members (project_agent_id)
     let member_statuses = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT pa.agent_id, pa.id
+                "SELECT pa.id
                  FROM project_agents pa
                  WHERE pa.project_id = ?1"
             )
@@ -854,10 +827,7 @@ pub async fn get_project_member_statuses(
 
         let members = stmt
             .query_map([&project_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                ))
+                Ok(row.get::<_, String>(0)?)
             })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
@@ -872,49 +842,40 @@ pub async fn get_project_member_statuses(
 
     // Check each member's process status
     let mut result: Vec<MemberProcessStatus> = Vec::new();
-    for (agent_id, stored_run_id) in member_statuses {
-        let run_id = stored_run_id;
-
+    for project_agent_id in member_statuses {
         // First check memory status
         if let Some(project_statuses) = project_mem_statuses {
-            if let Some(mem_status) = project_statuses.get(&agent_id) {
-                // If we have a valid run_id and the status is still valid (running exists in registry)
-                if mem_status.run_id.as_ref() == Some(&run_id) {
-                    if mem_status.status == "running" {
-                        // Verify process is still actually running
-                        if registry.0.exists(&run_id).unwrap_or(false) {
-                            result.push(MemberProcessStatus {
-                                agent_id,
-                                run_id: Some(run_id),
-                                status: "running".to_string(),
-                            });
-                            continue;
-                        } else {
-                            // Process died unexpectedly - mark as error
-                            result.push(MemberProcessStatus {
-                                agent_id,
-                                run_id: Some(run_id),
-                                status: "error".to_string(),
-                            });
-                            continue;
-                        }
-                    } else {
-                        // Return the stored status (completed, stopped, error)
+            if let Some(mem_status) = project_statuses.get(&project_agent_id) {
+                if mem_status.status == "running" {
+                    // Verify process is still actually running
+                    if registry.0.exists(&project_agent_id).unwrap_or(false) {
                         result.push(MemberProcessStatus {
-                            agent_id,
-                            run_id: Some(run_id),
-                            status: mem_status.status.clone(),
+                            project_agent_id: project_agent_id.clone(),
+                            status: "running".to_string(),
+                        });
+                        continue;
+                    } else {
+                        // Process died unexpectedly - mark as error
+                        result.push(MemberProcessStatus {
+                            project_agent_id: project_agent_id.clone(),
+                            status: "error".to_string(),
                         });
                         continue;
                     }
+                } else {
+                    // Return the stored status (completed, stopped, error)
+                    result.push(MemberProcessStatus {
+                        project_agent_id: project_agent_id.clone(),
+                        status: mem_status.status.clone(),
+                    });
+                    continue;
                 }
             }
         }
 
         // Default: not started yet
         result.push(MemberProcessStatus {
-            agent_id,
-            run_id: Some(run_id),
+            project_agent_id,
             status: "pending".to_string(),
         });
     }

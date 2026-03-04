@@ -129,14 +129,14 @@ async fn start_teammate_agent_only(
         (project_path, model, run_id)
     };
 
-    // Start the teammate agent with existing run_id
-    let _new_run_id = crate::commands::teammate::start_teammate_agent(
+    // Start the teammate agent with existing run_id (now using project_agent_id as session_id)
+    let _new_session_id = crate::commands::teammate::start_teammate_agent(
         app,
+        run_id.clone(),  // project_agent_id as session_id
         agent_id,
         project_path,
         project_id,
         Some(model),
-        Some(run_id.clone()),
         db,
         registry,
     )

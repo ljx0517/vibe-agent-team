@@ -782,6 +782,34 @@ export const api = {
   },
 
   /**
+   * Update session_id for a project-agent relationship
+   * @param projectAgentId - The project-agent relationship ID
+   * @param sessionId - The session ID to set
+   */
+  async updateProjectAgentSession(projectAgentId: string, sessionId: string): Promise<void> {
+    try {
+      await apiCall<void>('update_project_agent_session', { projectAgentId, sessionId });
+    } catch (error) {
+      console.error("Failed to update project agent session:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get session_id for a project-agent relationship
+   * @param projectAgentId - The project-agent relationship ID
+   * @returns Promise resolving to the session ID or null
+   */
+  async getProjectAgentSession(projectAgentId: string): Promise<string | null> {
+    try {
+      return await apiCall<string | null>('get_project_agent_session', { projectAgentId });
+    } catch (error) {
+      console.error("Failed to get project agent session:", error);
+      throw error;
+    }
+  },
+
+  /**
    * Lists all teamlead agents
    * @returns Promise resolving to an array of teamlead agents
    */
