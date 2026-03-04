@@ -219,26 +219,45 @@ pub async fn send_message(
     };
 
     // Try to send to running agent, or start new one
+    // First check registry for running agent
     let run_id = match registry
         .0
         .find_teammate_run_id(&project_path, &target_agent_id)
     {
         Some(rid) => rid,
         None => {
-            // Agent not running, start new one
-            let new_run_id = start_teammate_agent_only(
-                app.clone(),
-                db.clone(),
-                registry.clone(),
-                project_id.clone(),
-                target_agent_id.clone(),
-            )
-            .await?;
+            // Not in registry (may be first run after app restart)
+            // Check if there's a running Claude process for this session
+            // Get project_agent_id from database
+            let project_agent_id = {
+                let conn = db.0.lock().map_err(|e| e.to_string())?;
+                let mut stmt = conn
+                    .prepare("SELECT id FROM project_agents WHERE project_id = ?1 AND agent_id = ?2")
+                    .map_err(|e| e.to_string())?;
+                stmt.query_row(params![project_id, target_agent_id], |row| row.get::<_, String>(0))
+                    .map_err(|e| format!("Project agent not found: {}", e))?
+            };
 
-            // Wait a bit for the agent to initialize
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            // Check if a process with this session_id is actually running
+            if registry.0.exists(&project_agent_id).unwrap_or(false) {
+                // Process is running but not in our registry (app restart), use it
+                project_agent_id
+            } else {
+                // No running process, start new one
+                let new_run_id = start_teammate_agent_only(
+                    app.clone(),
+                    db.clone(),
+                    registry.clone(),
+                    project_id.clone(),
+                    target_agent_id.clone(),
+                )
+                .await?;
 
-            new_run_id
+                // Wait a bit for the agent to initialize
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                new_run_id
+            }
         }
     };
 
