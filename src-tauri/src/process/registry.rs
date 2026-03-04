@@ -561,6 +561,15 @@ impl ProcessRegistry {
             .collect())
     }
 
+    /// Get all running processes (including TeammateAgent)
+    pub fn get_all_running_processes(&self) -> Result<Vec<ProcessInfo>, String> {
+        let processes = self.processes.lock().map_err(|e| e.to_string())?;
+        Ok(processes
+            .values()
+            .map(|handle| handle.info.clone())
+            .collect())
+    }
+
     /// Get a specific running process
     #[allow(dead_code)]
     pub fn get_process(&self, run_id: String) -> Result<Option<ProcessInfo>, String> {

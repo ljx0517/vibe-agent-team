@@ -55,7 +55,7 @@ use commands::message::{
 };
 use process::ProcessRegistryState;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{Manager, Listener};
 
 #[cfg(target_os = "macos")]
 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
@@ -190,6 +190,22 @@ fn main() {
                     .expect("Failed to apply any window vibrancy");
                 }
             }
+
+            // Cleanup all running teammate agents on app exit
+            let app_handle = app.handle().clone();
+            app.listen("tauri://close-requested", move |_event| {
+                log::info!("App is closing, cleaning up teammate agents...");
+                let registry = app_handle.state::<ProcessRegistryState>();
+                if let Ok(processes) = registry.0.get_all_running_processes() {
+                    for process_info in processes {
+                        log::info!("Killing process: {} (PID: {})", process_info.run_id, process_info.pid);
+                        let _ = std::process::Command::new("kill")
+                            .arg("-9")
+                            .arg(process_info.pid.to_string())
+                            .output();
+                    }
+                }
+            });
 
             Ok(())
         })
