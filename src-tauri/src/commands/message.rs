@@ -105,8 +105,7 @@ async fn start_teammate_agent_only(
     agent_id: String,
 ) -> Result<String, String> {
     // Get project path, model, and project_agents.id (run_id)
-    // Clone values for potential retry
-    let (project_path, model, project_agent_id, project_id_clone, agent_id_clone) = {
+    let (project_path, model, project_agent_id, agent_id_clone, project_id_clone) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let project_path = get_project_path(&conn, &project_id)?;
 
@@ -127,13 +126,13 @@ async fn start_teammate_agent_only(
             .query_row(params![project_id, agent_id], |row| row.get::<_, String>(0))
             .map_err(|e| format!("Project agent not found: {}", e))?;
 
-        (project_path, model, project_agent_id, project_id.clone(), agent_id.clone())
+        (project_path, model, project_agent_id, agent_id.clone(), project_id.clone())
     };
 
     // Try to start the teammate agent
-    match crate::commands::teammate::start_teammate_agent(
+    let result = crate::commands::teammate::start_teammate_agent(
         app.clone(),
-        project_agent_id.clone(),  // project_agent_id as session_id
+        project_agent_id.clone(),
         agent_id_clone.clone(),
         project_path.clone(),
         project_id_clone.clone(),
@@ -141,29 +140,25 @@ async fn start_teammate_agent_only(
         db.clone(),
         registry.clone(),
     )
-    .await
-    {
+    .await;
+
+    match result {
         Ok(new_session_id) => Ok(new_session_id),
         Err(e) if e.contains("already in use") => {
-            // Session is locked by Claude (from previous run), generate new session_id
-            use uuid::Uuid;
-            let new_session_id = Uuid::new_v4().to_string();
-            log::warn!("Session {} is locked, generating new session_id: {}", project_agent_id, new_session_id);
+            // Session is locked by a stale Claude process (program exited without cleanup)
+            // Try to kill any existing Claude process for this session and retry
+            log::warn!("Session {} is locked, attempting to kill stale process", project_agent_id);
 
-            // Update the project_agents table with new session_id
-            {
-                let conn = db.0.lock().map_err(|e| e.to_string())?;
-                conn.execute(
-                    "UPDATE project_agents SET id = ?1 WHERE id = ?2 AND project_id = ?3",
-                    params![new_session_id, project_agent_id, project_id_clone],
-                )
-                .map_err(|e| format!("Failed to update session_id: {}", e))?;
-            }
+            // Try to kill the process by session_id
+            let _ = registry.0.kill_process(project_agent_id.clone()).await;
 
-            // Try starting again with new session_id
+            // Wait a bit for the process to fully exit
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+            // Retry with the same session_id
             crate::commands::teammate::start_teammate_agent(
                 app,
-                new_session_id.clone(),
+                project_agent_id.clone(),
                 agent_id_clone,
                 project_path,
                 project_id_clone,
@@ -173,7 +168,7 @@ async fn start_teammate_agent_only(
             )
             .await?;
 
-            Ok(new_session_id)
+            Ok(project_agent_id)
         }
         Err(e) => Err(e),
     }
