@@ -9,6 +9,58 @@ use crate::commands::agents::AgentDb;
 use crate::commands::message_middleware::MessageMiddleware;
 use crate::process::ProcessRegistryState;
 
+/// Kill any Claude process using a specific session ID (even if not in registry)
+async fn kill_stale_claude_process(session_id: &str) -> Result<(), String> {
+    use std::process::Command;
+
+    // Use pgrep to find Claude processes with this session ID
+    #[cfg(target_os = "macos")]
+    {
+        // On macOS, try to find and kill the process
+        let output = Command::new("pgrep")
+            .args(["-f", &format!("--session-id.*{}", session_id)])
+            .output();
+
+        if let Ok(output) = output {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            for pid in pids.lines() {
+                if !pid.is_empty() {
+                    let _ = Command::new("kill")
+                        .arg("-9")
+                        .arg(pid)
+                        .output();
+                    log::info!("Killed stale Claude process: {}", pid);
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("pgrep")
+            .args(["-f", &format!("--session-id.*{}", session_id)])
+            .output();
+
+        if let Ok(output) = output {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            for pid in pids.lines() {
+                if !pid.is_empty() {
+                    let _ = Command::new("kill")
+                        .arg("-9")
+                        .arg(pid)
+                        .output();
+                    log::info!("Killed stale Claude process: {}", pid);
+                }
+            }
+        }
+    }
+
+    // Wait for the session to be released
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+    Ok(())
+}
+
 /// Message structure for the database
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
@@ -150,7 +202,8 @@ async fn start_teammate_agent_only(
             log::warn!("Session {} is locked, attempting to kill stale process", project_agent_id);
 
             // Try to kill the process by session_id
-            let _ = registry.0.kill_process(project_agent_id.clone()).await;
+            // Kill any stale Claude process using this session ID
+            kill_stale_claude_process(&project_agent_id).await?;
 
             // Wait a bit for the process to fully exit
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
