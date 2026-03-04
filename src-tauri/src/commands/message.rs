@@ -105,7 +105,8 @@ async fn start_teammate_agent_only(
     agent_id: String,
 ) -> Result<String, String> {
     // Get project path, model, and project_agents.id (run_id)
-    let (project_path, model, run_id) = {
+    // Clone values for potential retry
+    let (project_path, model, project_agent_id, project_id_clone, agent_id_clone) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let project_path = get_project_path(&conn, &project_id)?;
 
@@ -122,27 +123,60 @@ async fn start_teammate_agent_only(
             .prepare("SELECT id FROM project_agents WHERE project_id = ?1 AND agent_id = ?2")
             .map_err(|e| e.to_string())?;
 
-        let run_id: String = stmt2
+        let project_agent_id: String = stmt2
             .query_row(params![project_id, agent_id], |row| row.get::<_, String>(0))
             .map_err(|e| format!("Project agent not found: {}", e))?;
 
-        (project_path, model, run_id)
+        (project_path, model, project_agent_id, project_id.clone(), agent_id.clone())
     };
 
-    // Start the teammate agent with existing run_id (now using project_agent_id as session_id)
-    let _new_session_id = crate::commands::teammate::start_teammate_agent(
-        app,
-        run_id.clone(),  // project_agent_id as session_id
-        agent_id,
-        project_path,
-        project_id,
-        Some(model),
-        db,
-        registry,
+    // Try to start the teammate agent
+    match crate::commands::teammate::start_teammate_agent(
+        app.clone(),
+        project_agent_id.clone(),  // project_agent_id as session_id
+        agent_id_clone.clone(),
+        project_path.clone(),
+        project_id_clone.clone(),
+        Some(model.clone()),
+        db.clone(),
+        registry.clone(),
     )
-    .await?;
+    .await
+    {
+        Ok(new_session_id) => Ok(new_session_id),
+        Err(e) if e.contains("already in use") => {
+            // Session is locked by Claude (from previous run), generate new session_id
+            use uuid::Uuid;
+            let new_session_id = Uuid::new_v4().to_string();
+            log::warn!("Session {} is locked, generating new session_id: {}", project_agent_id, new_session_id);
 
-    Ok(run_id)
+            // Update the project_agents table with new session_id
+            {
+                let conn = db.0.lock().map_err(|e| e.to_string())?;
+                conn.execute(
+                    "UPDATE project_agents SET id = ?1 WHERE id = ?2 AND project_id = ?3",
+                    params![new_session_id, project_agent_id, project_id_clone],
+                )
+                .map_err(|e| format!("Failed to update session_id: {}", e))?;
+            }
+
+            // Try starting again with new session_id
+            crate::commands::teammate::start_teammate_agent(
+                app,
+                new_session_id.clone(),
+                agent_id_clone,
+                project_path,
+                project_id_clone,
+                Some(model),
+                db,
+                registry,
+            )
+            .await?;
+
+            Ok(new_session_id)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Send a message to a project (dispatch to target agent or TeamLead)
